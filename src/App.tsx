@@ -8,9 +8,15 @@ import { HeroHeader } from './components/HeroHeader';
 import { PageOrnaments } from './components/PageOrnaments';
 import { ProfileCard } from './components/ProfileCard';
 import { RegistrationPanel } from './components/RegistrationPanel';
+import { RoomingKosMotionPreview } from './components/RoomingKosMotionPreview';
 import { useCelebration } from './hooks/useCelebration';
 import { useProfileCard } from './hooks/useProfileCard';
 import { useTournamentEvent } from './hooks/useTournamentEvent';
+import { ClickParticles } from './components/ClickParticles';
+import { AdminGateModal } from './components/AdminGateModal';
+import { PodiumPopup } from './components/PodiumPopup';
+import { getBracketEntrants, getResolvedMatchWinner } from './utils/bracket';
+import { THIRD_PLACE_KEY } from './constants';
 import type { ViewMode } from './types';
 
 function getRosterStatusText(options: {
@@ -77,12 +83,13 @@ export default function App() {
   const celebration = useCelebration();
 
   const [currentView, setCurrentView] = useState<ViewMode>('warriors');
-  const [isAdminMode, setIsAdminMode] = useState(
-    () => sessionStorage.getItem(ADMIN_SESSION_KEY) === '1',
-  );
+  const [isAdminMode, setIsAdminMode] = useState(false);
+  const [showAdminGate, setShowAdminGate] = useState(false);
+  const [showPodium, setShowPodium] = useState(false);
   const [isBracketFocus, setIsBracketFocus] = useState(
     () => document.body.classList.contains('bracket-focus'),
   );
+  const [stamps, setStamps] = useState<{ id: number; x: number; y: number }[]>([]);
 
   const canUseAdminControls = isAdminMode && currentView === 'admin';
   const canUseRosterControls = isAdminMode;
@@ -112,15 +119,6 @@ export default function App() {
       tournament.waitingPlayers.length,
     ],
   );
-
-  useEffect(() => {
-    if (isAdminMode) {
-      sessionStorage.setItem(ADMIN_SESSION_KEY, '1');
-      return;
-    }
-
-    sessionStorage.removeItem(ADMIN_SESSION_KEY);
-  }, [isAdminMode]);
 
   useEffect(() => {
     document.body.classList.toggle('bracket-focus', isBracketFocus);
@@ -171,29 +169,9 @@ export default function App() {
     };
   }, [isBracketFocus, profileCard.card.pinned, profileCard.hideProfileCard]);
 
-  function requestAdminGate() {
-    if (isAdminMode) {
-      return true;
-    }
-
-    const input = window.prompt('Enter the admin password.');
-
-    if (!input) {
-      return false;
-    }
-
-    if (input.trim() === ADMIN_PASSWORD) {
-      setIsAdminMode(true);
-      return true;
-    }
-
-    tournament.setShareStatus('Incorrect admin password.');
-    return false;
-  }
-
   function handleViewChange(nextView: ViewMode) {
-    if (nextView === 'admin' && !requestAdminGate()) {
-      startTransition(() => setCurrentView('warriors'));
+    if (nextView === 'admin' && !isAdminMode) {
+      setShowAdminGate(true);
       return;
     }
 
@@ -205,11 +183,9 @@ export default function App() {
     startTransition(() => setCurrentView(nextView));
   }
 
-  function handleAdminLogin() {
-    if (!requestAdminGate()) {
-      return;
-    }
-
+  function handleAdminLoginSuccess() {
+    setShowAdminGate(false);
+    setIsAdminMode(true);
     startTransition(() => setCurrentView('admin'));
   }
 
@@ -232,11 +208,27 @@ export default function App() {
 
     if (result.kind === 'champion') {
       celebration.triggerChampionCelebration(result.championName || 'Champion');
+      setTimeout(() => {
+        setShowPodium(true);
+      }, 3000);
       return;
     }
 
     if (result.kind === 'winner') {
       celebration.triggerWinnerConfetti(clientX, clientY);
+      if (clientX !== undefined && clientY !== undefined) {
+        const newId = Date.now();
+        setStamps((s) => [...s, { id: newId, x: clientX, y: clientY }]);
+        setTimeout(() => setStamps((s) => s.filter((stamp) => stamp.id !== newId)), 800);
+        
+        const svgElement = document.getElementById('bracketSvg');
+        if (svgElement) {
+          svgElement.classList.remove('shake-animation');
+          void svgElement.offsetWidth;
+          svgElement.classList.add('shake-animation');
+          setTimeout(() => svgElement.classList.remove('shake-animation'), 300);
+        }
+      }
     }
   }
 
@@ -250,11 +242,55 @@ export default function App() {
 
     if (result.kind === 'winner') {
       celebration.triggerWinnerConfetti(clientX, clientY);
+      if (clientX !== undefined && clientY !== undefined) {
+        const newId = Date.now();
+        setStamps((s) => [...s, { id: newId, x: clientX, y: clientY }]);
+        setTimeout(() => setStamps((s) => s.filter((stamp) => stamp.id !== newId)), 800);
+        
+        const svgElement = document.getElementById('bracketSvg');
+        if (svgElement) {
+          svgElement.classList.remove('shake-animation');
+          void svgElement.offsetWidth;
+          svgElement.classList.add('shake-animation');
+          setTimeout(() => svgElement.classList.remove('shake-animation'), 300);
+        }
+      }
     }
   }
 
+  const entrants = getBracketEntrants(tournament.players, tournament.rosterOrder, tournament.isRosterFinalized);
+  const leftFinalistIndex = getResolvedMatchWinner(3, 0, entrants, tournament.matchWinners);
+  const rightFinalistIndex = getResolvedMatchWinner(3, 1, entrants, tournament.matchWinners);
+  const secondPlaceIndex = tournament.championIndex === leftFinalistIndex ? rightFinalistIndex : leftFinalistIndex;
+
+  const firstPlace = tournament.championIndex !== undefined ? entrants[tournament.championIndex] : undefined;
+  const secondPlace = secondPlaceIndex !== undefined ? entrants[secondPlaceIndex] : undefined;
+  const thirdPlace = tournament.matchWinners[THIRD_PLACE_KEY] !== undefined ? entrants[tournament.matchWinners[THIRD_PLACE_KEY]] : undefined;
+
   return (
     <>
+      <AdminGateModal 
+        visible={showAdminGate} 
+        onClose={() => setShowAdminGate(false)} 
+        onSuccess={handleAdminLoginSuccess} 
+      />
+      <PodiumPopup
+        visible={showPodium}
+        onClose={() => setShowPodium(false)}
+        firstPlace={firstPlace}
+        secondPlace={secondPlace}
+        thirdPlace={thirdPlace}
+      />
+      <ClickParticles />
+      {stamps.map((stamp) => (
+        <div 
+          key={stamp.id} 
+          className="stamp-winner" 
+          style={{ left: stamp.x, top: stamp.y }}
+        >
+          WINNER
+        </div>
+      ))}
       <CelebrationLayer
         canvasRef={celebration.canvasRef}
         championName={celebration.championName}
@@ -280,7 +316,7 @@ export default function App() {
           showAdminControls={currentView === 'admin'}
           isAdminMode={isAdminMode}
           canUseAdminControls={canUseAdminControls}
-          onLogin={handleAdminLogin}
+          onLogin={() => setShowAdminGate(true)}
           onLogout={handleAdminLogout}
           onReset={tournament.resetEvent}
         />
@@ -322,8 +358,9 @@ export default function App() {
           </div>
 
           {currentView === 'admin' ? (
-            <BracketPanel
-              players={tournament.players}
+            <>
+              <BracketPanel
+                players={tournament.players}
               rosterOrder={tournament.rosterOrder}
               matchWinners={tournament.matchWinners}
               isRosterFinalized={tournament.isRosterFinalized}
@@ -341,6 +378,23 @@ export default function App() {
               onSelectThirdPlaceWinner={handleSelectThirdPlaceWinner}
               onScroll={() => profileCard.hideProfileCard(true)}
             />
+            {tournament.championIndex !== undefined && (
+              <button 
+                type="button" 
+                onClick={() => setShowPodium(true)}
+                style={{
+                  position: 'fixed', bottom: '24px', right: '24px', zIndex: 100,
+                  background: 'var(--brand)', color: '#fff', padding: '12px 24px',
+                  borderRadius: '999px', border: '4px solid var(--black)',
+                  fontSize: '18px',
+                  fontWeight: 900, boxShadow: '6px 6px 0 var(--black)',
+                  cursor: 'pointer', transition: 'transform 0.1s'
+                }}
+              >
+                🏆 VIEW PODIUM
+              </button>
+            )}
+            </>
           ) : null}
         </div>
       </main>

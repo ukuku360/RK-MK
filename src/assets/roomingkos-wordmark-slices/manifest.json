@@ -1,0 +1,119 @@
+{
+  "source": "/Users/nmduk/PROJECTS/RK_Events_demo_version/ROOMINGKOS BRANDING/Logo/PNG/Copy of RK_Brandmark_RED_CMYK.png",
+  "bounds": {
+    "x": 6,
+    "y": 6,
+    "width": 3632,
+    "height": 625
+  },
+  "components": [
+    {
+      "id": "slice-01",
+      "file": "slice-01.png",
+      "order": 1,
+      "x": 0,
+      "y": 22,
+      "width": 147,
+      "height": 451
+    },
+    {
+      "id": "slice-02",
+      "file": "slice-02.png",
+      "order": 2,
+      "x": 193,
+      "y": 19,
+      "width": 382,
+      "height": 461
+    },
+    {
+      "id": "slice-03",
+      "file": "slice-03.png",
+      "order": 3,
+      "x": 560,
+      "y": 141,
+      "width": 339,
+      "height": 339
+    },
+    {
+      "id": "slice-04",
+      "file": "slice-04.png",
+      "order": 4,
+      "x": 912,
+      "y": 141,
+      "width": 339,
+      "height": 339
+    },
+    {
+      "id": "slice-05",
+      "file": "slice-05.png",
+      "order": 5,
+      "x": 1288,
+      "y": 141,
+      "width": 506,
+      "height": 332
+    },
+    {
+      "id": "slice-06",
+      "file": "slice-06.png",
+      "order": 6,
+      "x": 1839,
+      "y": 0,
+      "width": 88,
+      "height": 88
+    },
+    {
+      "id": "slice-07",
+      "file": "slice-07.png",
+      "order": 7,
+      "x": 1851,
+      "y": 148,
+      "width": 64,
+      "height": 325
+    },
+    {
+      "id": "slice-08",
+      "file": "slice-08.png",
+      "order": 8,
+      "x": 1977,
+      "y": 141,
+      "width": 297,
+      "height": 332
+    },
+    {
+      "id": "slice-09",
+      "file": "slice-09.png",
+      "order": 9,
+      "x": 2305,
+      "y": 141,
+      "width": 342,
+      "height": 484
+    },
+    {
+      "id": "slice-10",
+      "file": "slice-10.png",
+      "order": 10,
+      "x": 2716,
+      "y": 19,
+      "width": 357,
+      "height": 461
+    },
+    {
+      "id": "slice-11",
+      "file": "slice-11.png",
+      "order": 11,
+      "x": 3045,
+      "y": 141,
+      "width": 339,
+      "height": 339
+    },
+    {
+      "id": "slice-12",
+      "file": "slice-12.png",
+      "order": 12,
+      "x": 3390,
+      "y": 141,
+      "width": 242,
+      "height": 339
+    }
+  ]
+}

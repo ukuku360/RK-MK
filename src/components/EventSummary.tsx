@@ -63,7 +63,7 @@ export function EventSummary({
           </p>
           <div className="event-summary-admin-actions">
             {!isAdminMode ? (
-              <button type="button" onClick={onLogin}>
+              <button type="button" onClick={() => onLogin?.()}>
                 Admin Login
               </button>
             ) : (

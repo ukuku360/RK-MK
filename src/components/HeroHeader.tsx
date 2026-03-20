@@ -1,5 +1,5 @@
 import roomingKosBrandmark from '../../ROOMINGKOS BRANDING/Logo/PNG/RK_Brandmark_reduced_Rev_CMYK@4x.png';
-import roomingKosWordmark from '../../ROOMINGKOS BRANDING/Logo/PNG/Copy of RK_Brandmark_RED_CMYK.png';
+import { RoomingKosMotionPreview } from './RoomingKosMotionPreview';
 import type { ViewMode } from '../types';
 
 interface HeroHeaderProps {
@@ -17,9 +17,7 @@ export function HeroHeader({
 }: HeroHeaderProps) {
   return (
     <header className="hero">
-      <div className="hero-banner">
-        <img className="hero-banner-mark" src={roomingKosWordmark} alt="RoomingKos" />
-      </div>
+      <RoomingKosMotionPreview />
       <h1>Swanston Table Tennis Tournament</h1>
       <div className="mode-switch" role="tablist" aria-label="View mode">
         <button

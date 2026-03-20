@@ -1,4 +1,6 @@
 import type { RefObject } from 'react';
+import { useEffect } from 'react';
+import { PingPongRain } from './PingPongRain';
 
 interface CelebrationLayerProps {
   canvasRef: RefObject<HTMLCanvasElement | null>;
@@ -9,6 +11,18 @@ export function CelebrationLayer({
   canvasRef,
   championName,
 }: CelebrationLayerProps) {
+  useEffect(() => {
+    if (championName) {
+      document.body.classList.add('massive-shake-animation');
+    } else {
+      document.body.classList.remove('massive-shake-animation');
+    }
+
+    return () => {
+      document.body.classList.remove('massive-shake-animation');
+    };
+  }, [championName]);
+
   return (
     <>
       <canvas
@@ -51,6 +65,7 @@ export function CelebrationLayer({
           {championName ? `TROPHY ${championName}` : ''}
         </div>
       </div>
+      <PingPongRain active={!!championName} />
     </>
   );
 }
