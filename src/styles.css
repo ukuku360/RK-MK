@@ -5,7 +5,7 @@
   --grid-color: rgba(85, 97, 115, 0.12);
   --black: #171717;
   --white: #fff;
-  --brand: #ea3c58;
+  --brand: #da1f43;
   --brand-alt: #556173;
   --brand-yellow: #f1d2ab;
   --brand-green: #dde6df;
@@ -187,6 +187,7 @@ body::before {
   box-shadow: 8px 8px 0 rgba(85, 97, 115, 0.18);
   margin-bottom: 28px;
   overflow: hidden;
+  max-width: 100%;
 }
 
 .hero-banner::before {
@@ -204,7 +205,8 @@ body::before {
   position: relative;
   z-index: 1;
   display: block;
-  width: min(520px, 78vw);
+  width: 100%;
+  max-width: 520px;
   height: auto;
 }
 
@@ -372,7 +374,7 @@ h1 {
 }
 
 .prize-card-first {
-  background: linear-gradient(160deg, #f05a71 0%, #ea3c58 100%);
+  background: linear-gradient(160deg, #f05a71 0%, #da1f43 100%);
   color: var(--brand-cream);
   transform: rotate(-1.2deg);
 }

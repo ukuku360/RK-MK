@@ -32,7 +32,7 @@
   <polygon points="60,80 300,80 340,150 20,150" fill="#dbe2ea" stroke="#171717" stroke-width="8" stroke-linejoin="round"/>
   
   <!-- Middle line -->
-  <line x1="40" y1="115" x2="320" y2="115" stroke="#ea3c58" stroke-width="5" stroke-linecap="round"/>
+  <line x1="40" y1="115" x2="320" y2="115" stroke="#da1f43" stroke-width="5" stroke-linecap="round"/>
   
   <!-- Surface Highlight Edge -->
   <line x1="60" y1="80" x2="20" y2="150" stroke="#fffbf7" stroke-width="5" stroke-linecap="round" opacity="0.6"/>
@@ -70,6 +70,6 @@
   <circle cx="250" cy="56" r="12" fill="#fffbf7" stroke="#171717" stroke-width="6"/>
 
   <!-- Sparkles -->
-  <path d="M 290 30 L 293 40 L 303 43 L 293 46 L 290 56 L 287 46 L 277 43 L 287 40 Z" fill="#ea3c58" stroke="#171717" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M 290 30 L 293 40 L 303 43 L 293 46 L 290 56 L 287 46 L 277 43 L 287 40 Z" fill="#da1f43" stroke="#171717" stroke-width="4" stroke-linejoin="round"/>
   <path d="M 80 40 L 82 46 L 88 48 L 82 50 L 80 56 L 78 50 L 72 48 L 78 46 Z" fill="#f1d2ab" stroke="#171717" stroke-width="4" stroke-linejoin="round"/>
 </svg>
