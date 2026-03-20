@@ -4,7 +4,7 @@ import { useState } from 'react';
 interface RegistrationPanelProps {
   buttonText: string;
   disabled: boolean;
-  onSubmit: (input: { name: string; aura: string; weak: string }) => Promise<boolean>;
+  onSubmit: (input: { name: string; aura: string; unitNumber: string }) => Promise<boolean>;
 }
 
 export function RegistrationPanel({
@@ -14,11 +14,11 @@ export function RegistrationPanel({
 }: RegistrationPanelProps) {
   const [name, setName] = useState('');
   const [aura, setAura] = useState('');
-  const [weak, setWeak] = useState('');
+  const [unitNumber, setUnitNumber] = useState('');
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const saved = await onSubmit({ name, aura, weak });
+    const saved = await onSubmit({ name, aura, unitNumber });
 
     if (!saved) {
       return;
@@ -26,7 +26,7 @@ export function RegistrationPanel({
 
     setName('');
     setAura('');
-    setWeak('');
+    setUnitNumber('');
   }
 
   return (
@@ -56,14 +56,14 @@ export function RegistrationPanel({
           />
         </label>
         <label>
-          <span>Weak Point (for fun)</span>
+          <span>Unit Number</span>
           <input
-            name="weak"
+            name="unitNumber"
             type="text"
-            placeholder="e.g. Slow in long rallies"
+            placeholder="e.g. 1207"
             required
-            value={weak}
-            onChange={(event) => setWeak(event.target.value)}
+            value={unitNumber}
+            onChange={(event) => setUnitNumber(event.target.value)}
           />
         </label>
         <button id="addButton" type="submit" disabled={disabled}>

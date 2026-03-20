@@ -1,11 +1,11 @@
 import { startTransition, useEffect, useMemo, useState } from 'react';
 import { ADMIN_PASSWORD, ADMIN_SESSION_KEY, MAX_PLAYERS } from './constants';
-import { AdminDashboard } from './components/AdminDashboard';
 import { BracketPanel } from './components/BracketPanel';
 import { CelebrationLayer } from './components/CelebrationLayer';
 import { EntriesPanel } from './components/EntriesPanel';
 import { EventSummary } from './components/EventSummary';
 import { HeroHeader } from './components/HeroHeader';
+import { PageOrnaments } from './components/PageOrnaments';
 import { ProfileCard } from './components/ProfileCard';
 import { RegistrationPanel } from './components/RegistrationPanel';
 import { useCelebration } from './hooks/useCelebration';
@@ -269,13 +269,21 @@ export default function App() {
       />
 
       <main className="page">
+        <PageOrnaments />
         <HeroHeader
           currentView={currentView}
           shareStatus={tournament.shareStatus}
           onShare={tournament.shareEvent}
           onViewChange={handleViewChange}
         />
-        <EventSummary />
+        <EventSummary
+          showAdminControls={currentView === 'admin'}
+          isAdminMode={isAdminMode}
+          canUseAdminControls={canUseAdminControls}
+          onLogin={handleAdminLogin}
+          onLogout={handleAdminLogout}
+          onReset={tournament.resetEvent}
+        />
 
         <div className={`content${currentView !== 'admin' ? ' content-single' : ''}`}>
           <div className="view-column">
@@ -298,13 +306,6 @@ export default function App() {
               </div>
             ) : (
               <section className="view-panel admin-view" role="tabpanel">
-                <AdminDashboard
-                  isAdminMode={isAdminMode}
-                  canUseAdminControls={canUseAdminControls}
-                  onLogin={handleAdminLogin}
-                  onLogout={handleAdminLogout}
-                  onReset={tournament.resetEvent}
-                />
                 <div className="view-slot-grid admin-slot-grid">
                   <EntriesPanel
                     players={tournament.players}

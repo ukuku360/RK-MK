@@ -1,0 +1,37 @@
+<svg width="240" height="320" viewBox="0 0 240 320" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Hard Black Brutalist Shadow -->
+  <g transform="translate(8, 8) rotate(-8, 115, 160)">
+    <rect x="95" y="150" width="40" height="130" rx="8" fill="#171717" />
+    <ellipse cx="115" cy="100" rx="80" ry="95" fill="#171717"/>
+  </g>
+  
+  <g transform="rotate(-8, 115, 160)">
+    <!-- Handle -->
+    <rect x="95" y="150" width="40" height="130" rx="8" fill="#f1d2ab" stroke="#171717" stroke-width="8"/>
+    <line x1="95" y1="170" x2="135" y2="170" stroke="#171717" stroke-width="5"/>
+    <line x1="95" y1="190" x2="135" y2="190" stroke="#171717" stroke-width="5"/>
+    <line x1="95" y1="210" x2="135" y2="210" stroke="#171717" stroke-width="5"/>
+    <line x1="95" y1="230" x2="135" y2="230" stroke="#171717" stroke-width="5"/>
+    <line x1="95" y1="250" x2="135" y2="250" stroke="#171717" stroke-width="5"/>
+
+    <!-- Paddle Face -->
+    <ellipse cx="115" cy="100" rx="80" ry="95" fill="#ea3c58" stroke="#171717" stroke-width="8"/>
+    
+    <!-- Highlight / Details -->
+    <path d="M 60 60 A 70 85 0 0 1 120 30" fill="none" stroke="#fffbf7" stroke-width="6" stroke-linecap="round" opacity="0.8"/>
+    <path d="M 55 85 A 70 85 0 0 1 75 45" fill="none" stroke="#fffbf7" stroke-width="6" stroke-linecap="round" opacity="0.8"/>
+  </g>
+  
+  <!-- Ball Shadow -->
+  <circle cx="192" cy="76" r="14" fill="#171717"/>
+  
+  <!-- Ball Motion Path -->
+  <path d="M 120 100 C 140 80 160 60 186 66" fill="none" stroke="#171717" stroke-width="5" stroke-dasharray="8 8" stroke-linecap="round"/>
+  
+  <!-- Ball -->
+  <circle cx="186" cy="70" r="14" fill="#fffbf7" stroke="#171717" stroke-width="6"/>
+  
+  <!-- Sparkles -->
+  <path d="M 40 210 L 43 220 L 53 223 L 43 226 L 40 236 L 37 226 L 27 223 L 37 220 Z" fill="#f1d2ab" stroke="#171717" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M 210 230 L 213 240 L 223 243 L 213 246 L 210 256 L 207 246 L 197 243 L 207 240 Z" fill="#ea3c58" stroke="#171717" stroke-width="4" stroke-linejoin="round"/>
+</svg>

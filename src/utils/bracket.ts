@@ -24,7 +24,7 @@ export function createEmptyBracketEntrant(): PlayerRecord {
   return {
     name: 'BYE',
     aura: '',
-    weak: '',
+    unitNumber: '',
     empty: true,
     isBye: true,
   };
@@ -49,7 +49,7 @@ export function getPlayerSelectionKey(player: PlayerRecord | null | undefined): 
     return '';
   }
 
-  return player.id || `${player.name}|${player.aura}|${player.weak}`;
+  return player.id || `${player.name}|${player.aura}|${player.unitNumber}`;
 }
 
 export function rosterOrderUsesIds(order: RosterEntry[]): boolean {

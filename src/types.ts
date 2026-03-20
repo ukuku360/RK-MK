@@ -2,7 +2,7 @@ export interface PlayerRecord {
   id?: string;
   name: string;
   aura: string;
-  weak: string;
+  unitNumber: string;
   createdAt?: unknown;
   empty?: boolean;
   isBye?: boolean;
@@ -25,7 +25,7 @@ export interface ProfileCardData {
   key: string;
   name: string;
   aura: string;
-  weak: string;
+  unitNumber: string;
   metaLabel: string;
 }
 

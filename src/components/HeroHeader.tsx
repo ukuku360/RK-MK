@@ -1,3 +1,5 @@
+import roomingKosBrandmark from '../../ROOMINGKOS BRANDING/Logo/PNG/RK_Brandmark_reduced_Rev_CMYK@4x.png';
+import roomingKosWordmark from '../../ROOMINGKOS BRANDING/Logo/PNG/Copy of RK_Brandmark_RED_CMYK.png';
 import type { ViewMode } from '../types';
 
 interface HeroHeaderProps {
@@ -15,16 +17,10 @@ export function HeroHeader({
 }: HeroHeaderProps) {
   return (
     <header className="hero">
-      <div className="brand-row">
-        <div className="brand-wordmark" aria-label="RoomingKos">
-          RoomingKos
-        </div>
+      <div className="hero-banner">
+        <img className="hero-banner-mark" src={roomingKosWordmark} alt="RoomingKos" />
       </div>
       <h1>Swanston Table Tennis Tournament</h1>
-      <p className="subtitle">
-        Single-elimination bracket (16 entrants). Player slots are displayed at the bottom and
-        the champion position is connected upward.
-      </p>
       <div className="mode-switch" role="tablist" aria-label="View mode">
         <button
           type="button"
@@ -37,12 +33,15 @@ export function HeroHeader({
         </button>
         <button
           type="button"
-          className={`mode-tab${currentView === 'admin' ? ' active' : ''}`}
+          className={`mode-tab mode-tab-admin${currentView === 'admin' ? ' active' : ''}`}
           role="tab"
+          aria-label="Admin"
           aria-pressed={currentView === 'admin'}
           onClick={() => onViewChange('admin')}
         >
-          Admin
+          <span className="mode-admin-badge" aria-hidden="true">
+            <img className="mode-admin-mark" src={roomingKosBrandmark} alt="" />
+          </span>
         </button>
       </div>
       <div className="hero-cta">

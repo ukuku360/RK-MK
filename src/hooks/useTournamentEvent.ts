@@ -48,7 +48,7 @@ import {
 interface SubmitPlayerInput {
   name: string;
   aura: string;
-  weak: string;
+  unitNumber: string;
 }
 
 function copyToClipboard(value: string) {
@@ -88,6 +88,44 @@ function normalizeEventUrl(eventId: string) {
   return nextUrl.toString();
 }
 
+function normalizeText(value: unknown) {
+  return typeof value === 'string' ? value : '';
+}
+
+function normalizePlayerRecord(player: Partial<PlayerRecord> | null | undefined): PlayerRecord {
+  const normalized: PlayerRecord = {
+    name: normalizeText(player?.name),
+    aura: normalizeText(player?.aura),
+    unitNumber: normalizeText(player?.unitNumber),
+  };
+
+  if (typeof player?.id === 'string' && player.id) {
+    normalized.id = player.id;
+  }
+
+  if (player?.createdAt !== undefined) {
+    normalized.createdAt = player.createdAt;
+  }
+
+  if (player?.empty) {
+    normalized.empty = true;
+  }
+
+  if (player?.isBye) {
+    normalized.isBye = true;
+  }
+
+  return normalized;
+}
+
+function normalizeRosterEntry(entry: RosterEntry | null | undefined): RosterEntry {
+  if (!entry || typeof entry === 'string') {
+    return entry ?? null;
+  }
+
+  return normalizePlayerRecord(entry);
+}
+
 function snapshotToPlayerRecords(snapshot: DataSnapshot | null) {
   const records: PlayerRecord[] = [];
 
@@ -96,10 +134,12 @@ function snapshotToPlayerRecords(snapshot: DataSnapshot | null) {
   }
 
   snapshot.forEach((docItem) => {
-    records.push({
-      id: docItem.key ?? undefined,
-      ...(docItem.val() as Omit<PlayerRecord, 'id'>),
-    });
+    records.push(
+      normalizePlayerRecord({
+        id: docItem.key ?? undefined,
+        ...(docItem.val() as Omit<PlayerRecord, 'id'>),
+      }),
+    );
   });
 
   return records;
@@ -127,27 +167,36 @@ function isLegacyTestPlayer(player: PlayerRecord | null | undefined) {
     return false;
   }
 
-  return /^Test Player \d+$/.test(player.name || '')
-    && (player.aura || '') === 'Test aura'
-    && (player.weak || '') === 'Test weak';
+  return /^Test Player \d+$/.test(player.name || '') && (player.aura || '') === 'Test aura';
 }
 
 function sanitizePersistedState(state: PersistedEventState): PersistedEventState {
-  const nextPlayers = state.players.filter((player) => !isLegacyTestPlayer(player));
-  const nextWaitingPlayers = state.waitingPlayers.filter((player) => !isLegacyTestPlayer(player));
+  const nextPlayers = state.players
+    .map((player) => normalizePlayerRecord(player))
+    .filter((player) => !isLegacyTestPlayer(player));
+  const nextWaitingPlayers = state.waitingPlayers
+    .map((player) => normalizePlayerRecord(player))
+    .filter((player) => !isLegacyTestPlayer(player));
+  const nextRosterOrder = state.rosterOrder.map((entry) => normalizeRosterEntry(entry));
 
   if (
     nextPlayers.length === state.players.length &&
-    nextWaitingPlayers.length === state.waitingPlayers.length
+    nextWaitingPlayers.length === state.waitingPlayers.length &&
+    nextRosterOrder.length === state.rosterOrder.length
   ) {
-    return state;
+    return {
+      ...state,
+      players: nextPlayers,
+      waitingPlayers: nextWaitingPlayers,
+      rosterOrder: nextRosterOrder,
+    };
   }
 
   return {
     ...state,
     players: nextPlayers,
     waitingPlayers: nextWaitingPlayers,
-    rosterOrder: [],
+    rosterOrder: nextRosterOrder,
     isRosterFinalized: false,
     matchWinners: {},
   };
@@ -361,7 +410,11 @@ export function useTournamentEvent() {
                 matchWinners?: MatchWinners;
               };
 
-              setRosterOrder(Array.isArray(data?.rosterOrder) ? data.rosterOrder : []);
+              setRosterOrder(
+                Array.isArray(data?.rosterOrder)
+                  ? data.rosterOrder.map((entry) => normalizeRosterEntry(entry))
+                  : [],
+              );
               setIsRosterFinalized(Boolean(data?.isRosterFinalized));
               setMatchWinners(
                 data?.matchWinners && typeof data.matchWinners === 'object'
@@ -419,7 +472,7 @@ export function useTournamentEvent() {
   }, []);
 
   const submitParticipant = useCallback(
-    async ({ name, aura, weak }: SubmitPlayerInput) => {
+    async ({ name, aura, unitNumber }: SubmitPlayerInput) => {
       if (isShufflingRoster) {
         return false;
       }
@@ -427,10 +480,10 @@ export function useTournamentEvent() {
       const player = {
         name: name.trim(),
         aura: aura.trim(),
-        weak: weak.trim(),
+        unitNumber: unitNumber.trim(),
       };
 
-      if (!player.name || !player.aura || !player.weak) {
+      if (!player.name || !player.aura || !player.unitNumber) {
         return false;
       }
 

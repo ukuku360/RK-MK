@@ -33,9 +33,9 @@ export function ProfileCard({
           <span className="player-profile-label">Aura Skill</span>
           <p className="player-profile-value">{data?.aura || 'No aura listed yet.'}</p>
         </div>
-        <div className="player-profile-block weak">
-          <span className="player-profile-label">Weak Point</span>
-          <p className="player-profile-value">{data?.weak || 'No weak point listed yet.'}</p>
+        <div className="player-profile-block unit-number">
+          <span className="player-profile-label">Unit Number</span>
+          <p className="player-profile-value">{data?.unitNumber || 'No unit number listed yet.'}</p>
         </div>
       </div>
     </div>

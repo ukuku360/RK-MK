@@ -1,0 +1,75 @@
+<svg width="360" height="240" viewBox="0 0 360 240" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Hard Black Brutalist Drop Shadows -->
+  <g transform="translate(6, 6)">
+    <!-- Back Legs -->
+    <path d="M 70 85 L 70 185" stroke="#171717" stroke-width="16" stroke-linecap="round"/>
+    <path d="M 290 85 L 290 185" stroke="#171717" stroke-width="16" stroke-linecap="round"/>
+    
+    <!-- Table Surface and edge -->
+    <polygon points="20,150 340,150 340,166 20,166" fill="#171717"/>
+    <polygon points="60,80 300,80 340,150 20,150" fill="#171717"/>
+
+    <!-- Front Legs -->
+    <path d="M 40 150 L 30 210" stroke="#171717" stroke-width="20" stroke-linecap="round"/>
+    <path d="M 320 150 L 330 210" stroke="#171717" stroke-width="20" stroke-linecap="round"/>
+    
+    <!-- Net -->
+    <rect x="176" y="60" width="16" height="106" fill="#171717" />
+  </g>
+
+  <!-- Left Back Leg -->
+  <path d="M 70 85 L 70 185" stroke="#171717" stroke-width="16" stroke-linecap="round"/>
+  <path d="M 70 85 L 70 185" stroke="#f1e7dc" stroke-width="6" stroke-linecap="round"/>
+
+  <!-- Right Back Leg -->
+  <path d="M 290 85 L 290 185" stroke="#171717" stroke-width="16" stroke-linecap="round"/>
+  <path d="M 290 85 L 290 185" stroke="#f1e7dc" stroke-width="6" stroke-linecap="round"/>
+
+  <!-- Front edge shadow/thickness -->
+  <polygon points="20,150 340,150 340,166 20,166" fill="#556173" stroke="#171717" stroke-width="8" stroke-linejoin="round"/>
+
+  <!-- The table top -->
+  <polygon points="60,80 300,80 340,150 20,150" fill="#dbe2ea" stroke="#171717" stroke-width="8" stroke-linejoin="round"/>
+  
+  <!-- Middle line -->
+  <line x1="40" y1="115" x2="320" y2="115" stroke="#ea3c58" stroke-width="5" stroke-linecap="round"/>
+  
+  <!-- Surface Highlight Edge -->
+  <line x1="60" y1="80" x2="20" y2="150" stroke="#fffbf7" stroke-width="5" stroke-linecap="round" opacity="0.6"/>
+  <line x1="60" y1="80" x2="300" y2="80" stroke="#fffbf7" stroke-width="5" stroke-linecap="round" opacity="0.6"/>
+
+  <!-- Left Front Leg -->
+  <path d="M 40 150 L 30 210" stroke="#171717" stroke-width="20" stroke-linecap="round"/>
+  <path d="M 40 150 L 30 210" stroke="#f1e7dc" stroke-width="8" stroke-linecap="round"/>
+
+  <!-- Right Front Leg -->
+  <path d="M 320 150 L 330 210" stroke="#171717" stroke-width="20" stroke-linecap="round"/>
+  <path d="M 320 150 L 330 210" stroke="#f1e7dc" stroke-width="8" stroke-linecap="round"/>
+
+  <!-- Net -->
+  <rect x="176" y="60" width="16" height="106" fill="#fffbf7" stroke="#171717" stroke-width="6" stroke-linejoin="round"/>
+  
+  <!-- Net Details -->
+  <line x1="176" y1="74" x2="190" y2="74" stroke="#171717" stroke-width="4"/>
+  <line x1="176" y1="88" x2="190" y2="88" stroke="#171717" stroke-width="4"/>
+  <line x1="176" y1="102" x2="190" y2="102" stroke="#171717" stroke-width="4"/>
+  <line x1="176" y1="116" x2="190" y2="116" stroke="#171717" stroke-width="4"/>
+  <line x1="176" y1="130" x2="190" y2="130" stroke="#171717" stroke-width="4"/>
+  <line x1="176" y1="144" x2="190" y2="144" stroke="#171717" stroke-width="4"/>
+  <line x1="176" y1="158" x2="190" y2="158" stroke="#171717" stroke-width="4"/>
+  
+  <line x1="184" y1="60" x2="184" y2="166" stroke="#171717" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- Ball Shadow -->
+  <circle cx="258" cy="62" r="12" fill="#171717" />
+  
+  <!-- Ball Motion Path -->
+  <path d="M 110 50 C 140 30 180 30 250 56" fill="none" stroke="#171717" stroke-width="5" stroke-dasharray="8 8" stroke-linecap="round"/>
+  
+  <!-- Ball -->
+  <circle cx="250" cy="56" r="12" fill="#fffbf7" stroke="#171717" stroke-width="6"/>
+
+  <!-- Sparkles -->
+  <path d="M 290 30 L 293 40 L 303 43 L 293 46 L 290 56 L 287 46 L 277 43 L 287 40 Z" fill="#ea3c58" stroke="#171717" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M 80 40 L 82 46 L 88 48 L 82 50 L 80 56 L 78 50 L 72 48 L 78 46 Z" fill="#f1d2ab" stroke="#171717" stroke-width="4" stroke-linejoin="round"/>
+</svg>

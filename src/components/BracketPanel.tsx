@@ -28,7 +28,7 @@ import {
   getThirdPlaceEntrantIndexes,
 } from '../utils/bracket';
 import { makeProfileCardData } from '../utils/profile';
-import { shortenPlayerName, shortenText } from '../utils/text';
+import { shortenPlayerName } from '../utils/text';
 
 interface BracketPanelProps {
   players: PlayerRecord[];
@@ -142,7 +142,7 @@ export function BracketPanel({
     }
 
     const rounds = [16, 8, 4, 2, 1];
-    const levelNodes: Array<Array<{ x: number; y: number; isLeaf: boolean; isEmpty: boolean; name?: string; aura?: string; weak?: string }>> = [];
+    const levelNodes: Array<Array<{ x: number; y: number; isLeaf: boolean; isEmpty: boolean; name?: string }>> = [];
     const nextConnectors: Connector[] = [];
     const nextNodes: RenderNode[] = [];
     const canControl = isRosterFinalized && canUseRosterControls;
@@ -165,8 +165,6 @@ export function BracketPanel({
       x: X_PADDING + slotSpacing * index,
       y: yBottom,
       name: player.empty ? 'BYE' : `${index + 1}. ${shortenPlayerName(player.name, 12)}`,
-      aura: player.aura,
-      weak: player.weak,
       isLeaf: true,
       isEmpty: Boolean(player.empty),
     }));
@@ -215,9 +213,6 @@ export function BracketPanel({
 
         if (node.isLeaf) {
           textPrimary = node.name || '';
-          textMeta = !node.isEmpty
-            ? `${shortenText(node.aura, 12)} / ${shortenText(node.weak, 12)}`
-            : '';
           profileData = makeProfileCardData(entrants[nodeIndex], `Slot ${nodeIndex + 1}`);
 
           if (!node.isEmpty && isRosterFinalized) {
@@ -480,129 +475,131 @@ export function BracketPanel({
           </button>
         </div>
       </div>
-      <div className="bracket-shell" onScroll={onScroll}>
-        <div className={`shuffle-overlay${isShufflingRoster ? ' visible' : ''}`} aria-hidden={!isShufflingRoster}>
-          <div className="shuffle-orbit"></div>
-          <div className="shuffle-text">Drawing roster...</div>
-          <p className="shuffle-subtext">
-            Players are being randomized and the final bracket will be locked.
-          </p>
-        </div>
-        <svg
-          id="bracketSvg"
-          xmlns="http://www.w3.org/2000/svg"
-          viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-          width={svgWidth}
-          height={svgHeight}
-          role="img"
-          aria-label="Bracket diagram"
-          preserveAspectRatio="xMinYMin meet"
-        >
-          <g id="edges">
-            {connectors.map((connector, index) => (
-              <path
-                key={`${connector.className}-${index}`}
-                d={connector.d}
-                className={connector.className}
-              />
-            ))}
-            {placementPanel ? (
-              <>
-                <rect
-                  x={placementPanel.x}
-                  y={placementPanel.y}
-                  width={placementPanel.width}
-                  height={placementPanel.height}
-                  rx={24}
-                  className="placement-panel"
+      <div className="bracket-stage">
+        <div className="bracket-shell" onScroll={onScroll}>
+          <div className={`shuffle-overlay${isShufflingRoster ? ' visible' : ''}`} aria-hidden={!isShufflingRoster}>
+            <div className="shuffle-orbit"></div>
+            <div className="shuffle-text">Drawing roster...</div>
+            <p className="shuffle-subtext">
+              Players are being randomized and the final bracket will be locked.
+            </p>
+          </div>
+          <svg
+            id="bracketSvg"
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+            width={svgWidth}
+            height={svgHeight}
+            role="img"
+            aria-label="Bracket diagram"
+            preserveAspectRatio="xMinYMin meet"
+          >
+            <g id="edges">
+              {connectors.map((connector, index) => (
+                <path
+                  key={`${connector.className}-${index}`}
+                  d={connector.d}
+                  className={connector.className}
                 />
-                <text
-                  x={placementPanel.x + 24}
-                  y={placementPanel.y + 42}
-                  className="placement-panel-title"
-                >
-                  3RD PLACE PLAYOFF
-                </text>
-                <text
-                  x={placementPanel.x + 24}
-                  y={placementPanel.y + 68}
-                  className="placement-panel-note"
-                >
-                  {placementPanel.playoffReady
-                    ? 'SEMIFINAL LOSERS DROP HERE.'
-                    : 'OPENS ONCE BOTH SEMIFINALS ARE LOCKED.'}
-                </text>
-                <text
-                  x={placementPanel.x + 24}
-                  y={placementPanel.y + 88}
-                  className="placement-panel-note"
-                >
-                  {placementPanel.playoffReady
-                    ? placementPanel.canControl
-                      ? 'CLICK A PLAYER TO LOCK 3RD PLACE.'
-                      : 'ADMIN LOCKS 3RD PLACE FROM THIS PANEL.'
-                    : 'LOSERS AUTO-DROP IN AS THE SEMIS FINISH.'}
-                </text>
-              </>
-            ) : null}
-          </g>
-          <g id="nodes">
-            {nodes.map((node) => {
-              const profileHandlers = getProfileHandlers(node.profileData, {
-                enablePin: !node.action,
-              }) as ComponentProps<'g'>;
-              const { onClick: profileOnClick, ...restProfileHandlers } = profileHandlers;
+              ))}
+              {placementPanel ? (
+                <>
+                  <rect
+                    x={placementPanel.x}
+                    y={placementPanel.y}
+                    width={placementPanel.width}
+                    height={placementPanel.height}
+                    rx={24}
+                    className="placement-panel"
+                  />
+                  <text
+                    x={placementPanel.x + 24}
+                    y={placementPanel.y + 42}
+                    className="placement-panel-title"
+                  >
+                    3RD PLACE PLAYOFF
+                  </text>
+                  <text
+                    x={placementPanel.x + 24}
+                    y={placementPanel.y + 68}
+                    className="placement-panel-note"
+                  >
+                    {placementPanel.playoffReady
+                      ? 'SEMIFINAL LOSERS DROP HERE.'
+                      : 'OPENS ONCE BOTH SEMIFINALS ARE LOCKED.'}
+                  </text>
+                  <text
+                    x={placementPanel.x + 24}
+                    y={placementPanel.y + 88}
+                    className="placement-panel-note"
+                  >
+                    {placementPanel.playoffReady
+                      ? placementPanel.canControl
+                        ? 'CLICK A PLAYER TO LOCK 3RD PLACE.'
+                        : 'ADMIN LOCKS 3RD PLACE FROM THIS PANEL.'
+                      : 'LOSERS AUTO-DROP IN AS THE SEMIS FINISH.'}
+                  </text>
+                </>
+              ) : null}
+            </g>
+            <g id="nodes">
+              {nodes.map((node) => {
+                const profileHandlers = getProfileHandlers(node.profileData, {
+                  enablePin: !node.action,
+                }) as ComponentProps<'g'>;
+                const { onClick: profileOnClick, ...restProfileHandlers } = profileHandlers;
 
-              return (
-                <g
-                  key={node.key}
-                  className={node.className}
-                  {...restProfileHandlers}
-                  onClick={(event) => {
-                    if (!node.action) {
-                      profileOnClick?.(event);
-                      return;
-                    }
+                return (
+                  <g
+                    key={node.key}
+                    className={node.className}
+                    {...restProfileHandlers}
+                    onClick={(event) => {
+                      if (!node.action) {
+                        profileOnClick?.(event);
+                        return;
+                      }
 
-                    if (node.action.kind === 'winner') {
-                      onSelectWinner(
-                        node.action.childLevel,
-                        node.action.childMatchIndex,
+                      if (node.action.kind === 'winner') {
+                        onSelectWinner(
+                          node.action.childLevel,
+                          node.action.childMatchIndex,
+                          node.action.winnerEntrantIndex,
+                          event.clientX,
+                          event.clientY,
+                        );
+                        return;
+                      }
+
+                      onSelectThirdPlaceWinner(
                         node.action.winnerEntrantIndex,
                         event.clientX,
                         event.clientY,
                       );
-                      return;
-                    }
-
-                    onSelectThirdPlaceWinner(
-                      node.action.winnerEntrantIndex,
-                      event.clientX,
-                      event.clientY,
-                    );
-                  }}
-                >
-                  <rect
-                    x={node.x - NODE_WIDTH / 2}
-                    y={node.y - NODE_HEIGHT / 2}
-                    width={NODE_WIDTH}
-                    height={NODE_HEIGHT}
-                    rx={10}
-                    className={`node-rect${node.isLeaf && node.isEmpty ? ' node-placeholder' : ''}`}
-                  />
-                  <text className="node-text" x={node.x} y={node.y - 2}>
-                    {node.textPrimary}
-                  </text>
-                  {node.textMeta ? (
-                    <text className="node-meta" x={node.x} y={node.y + 13}>
-                      {node.textMeta}
+                    }}
+                  >
+                    <rect
+                      x={node.x - NODE_WIDTH / 2}
+                      y={node.y - NODE_HEIGHT / 2}
+                      width={NODE_WIDTH}
+                      height={NODE_HEIGHT}
+                      rx={10}
+                      className={`node-rect${node.isLeaf && node.isEmpty ? ' node-placeholder' : ''}`}
+                    />
+                    <text className="node-text" x={node.x} y={node.y - 2}>
+                      {node.textPrimary}
                     </text>
-                  ) : null}
-                </g>
-              );
-            })}
-          </g>
-        </svg>
+                    {node.textMeta ? (
+                      <text className="node-meta" x={node.x} y={node.y + 13}>
+                        {node.textMeta}
+                      </text>
+                    ) : null}
+                  </g>
+                );
+              })}
+            </g>
+          </svg>
+        </div>
       </div>
     </section>
   );
