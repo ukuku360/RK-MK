@@ -1424,6 +1424,11 @@ body.bracket-focus #bracketSvg {
 }
 
 @media (max-width: 640px) {
+  .hero {
+    padding: 24px 18px 24px;
+    border-radius: 26px;
+  }
+
   .event-summary.event-summary-admin-active {
     grid-template-columns: 1fr;
     gap: 20px;
@@ -1472,13 +1477,16 @@ body.bracket-focus #bracketSvg {
   }
 
   .hero-banner {
-    padding: 14px 18px;
+    width: min(100%, 296px);
+    padding: 12px 14px;
     border-radius: 20px;
     margin-bottom: 22px;
   }
 
   .hero-banner-mark {
-    width: min(340px, 82vw);
+    display: block;
+    width: 100%;
+    max-width: 100%;
   }
 
   .brand-wordmark {
