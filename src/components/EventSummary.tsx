@@ -7,6 +7,26 @@ interface EventSummaryProps {
   onReset?: () => void;
 }
 
+function getAprilSecondCountdown() {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const today = new Date(currentYear, now.getMonth(), now.getDate());
+
+  let eventDate = new Date(currentYear, 3, 2);
+  if (today.getTime() > eventDate.getTime()) {
+    eventDate = new Date(currentYear + 1, 3, 2);
+  }
+
+  const diffMs = eventDate.getTime() - today.getTime();
+  const daysLeft = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+
+  if (daysLeft === 0) {
+    return 'D-DAY';
+  }
+
+  return `D-${daysLeft}`;
+}
+
 export function EventSummary({
   showAdminControls = false,
   isAdminMode = false,
@@ -15,6 +35,7 @@ export function EventSummary({
   onLogout,
   onReset,
 }: EventSummaryProps) {
+  const countdownLabel = getAprilSecondCountdown();
   const prizes = [
     {
       tier: '1st',
@@ -42,8 +63,27 @@ export function EventSummary({
         <p className="event-summary-title">Event Summary</p>
         <p className="event-summary-lead">
           <span className="event-summary-slots">Only 16 slots</span>
-          <span>open. Secure your place now.</span>
         </p>
+        <div className="event-summary-highlights" aria-label="Event date and availability">
+          <div className="event-summary-calendar" aria-hidden="true">
+            <span className="event-summary-calendar-ring event-summary-calendar-ring-left" />
+            <span className="event-summary-calendar-ring event-summary-calendar-ring-right" />
+            <span className="event-summary-calendar-top">APR</span>
+            <span className="event-summary-calendar-day">02</span>
+            <span className="event-summary-calendar-sticker">Play</span>
+          </div>
+          <div className="event-summary-date-stack">
+            <div className="event-summary-date-copy">
+              <p className="event-summary-date-label">Event Day</p>
+              <p className="event-summary-date-value">April 2</p>
+            </div>
+            <div className="event-summary-countdown" aria-label={`Countdown ${countdownLabel}`}>
+              <span className="event-summary-countdown-kicker">Countdown</span>
+              <span className="event-summary-countdown-value">{countdownLabel}</span>
+              <span className="event-summary-countdown-note">Until game night</span>
+            </div>
+          </div>
+        </div>
         <ul className="prize-grid" aria-label="Prize tiers">
           {prizes.map((prize) => (
             <li key={prize.tier} className={prize.className}>

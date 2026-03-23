@@ -719,6 +719,175 @@ h1 {
   color: var(--brand-alt);
 }
 
+.event-summary-highlights {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+  padding: 18px 20px;
+  border: 3px solid var(--black);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at top right, rgba(240, 90, 113, 0.18), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(255, 248, 243, 0.98) 100%);
+  box-shadow: 8px 8px 0 rgba(85, 97, 115, 0.14);
+}
+
+.event-summary-calendar {
+  position: relative;
+  width: 104px;
+  min-width: 104px;
+  padding: 20px 14px 14px;
+  border: 3px solid var(--black);
+  border-radius: 22px;
+  background: linear-gradient(180deg, #fffdf9 0%, #ffe7eb 100%);
+  box-shadow: 6px 6px 0 rgba(85, 97, 115, 0.18);
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  transform: rotate(-3deg);
+}
+
+.event-summary-calendar::before {
+  content: '';
+  position: absolute;
+  inset: 12px 10px auto;
+  height: 26px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #f05a71 0%, #dd3454 100%);
+}
+
+.event-summary-calendar-ring {
+  position: absolute;
+  top: -10px;
+  width: 14px;
+  height: 22px;
+  border: 3px solid var(--black);
+  border-radius: 999px;
+  background: #fff5d6;
+}
+
+.event-summary-calendar-ring-left {
+  left: 20px;
+}
+
+.event-summary-calendar-ring-right {
+  right: 20px;
+}
+
+.event-summary-calendar-top,
+.event-summary-calendar-day,
+.event-summary-calendar-sticker {
+  position: relative;
+  z-index: 1;
+}
+
+.event-summary-calendar-top {
+  margin-top: 1px;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.2em;
+  color: var(--brand-cream);
+}
+
+.event-summary-calendar-day {
+  margin-top: 10px;
+  font-family: 'Bricolage Grotesque', sans-serif;
+  font-size: 42px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--brand-alt);
+}
+
+.event-summary-calendar-sticker {
+  padding: 5px 10px;
+  border: 2px solid var(--black);
+  border-radius: 999px;
+  background: #ffe77a;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+  transform: rotate(8deg);
+}
+
+.event-summary-date-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.event-summary-date-stack {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  min-width: 0;
+}
+
+.event-summary-date-label {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(39, 49, 61, 0.72);
+}
+
+.event-summary-date-value {
+  margin: 0;
+  font-family: 'Bricolage Grotesque', sans-serif;
+  font-size: 34px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--brand-alt);
+}
+
+.event-summary-date-note {
+  margin: 0;
+  max-width: 28ch;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.45;
+  color: rgba(39, 49, 61, 0.82);
+}
+
+.event-summary-countdown {
+  display: grid;
+  gap: 4px;
+  min-width: 118px;
+  padding: 12px 14px;
+  border: 3px solid var(--black);
+  border-radius: 18px;
+  background: linear-gradient(180deg, #fff7bf 0%, #ffe77a 100%);
+  box-shadow: 5px 5px 0 rgba(85, 97, 115, 0.16);
+  justify-items: center;
+  text-align: center;
+  transform: rotate(3deg);
+}
+
+.event-summary-countdown-kicker {
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(39, 49, 61, 0.74);
+}
+
+.event-summary-countdown-value {
+  font-family: 'Bricolage Grotesque', sans-serif;
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--brand-alt);
+}
+
+.event-summary-countdown-note {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: rgba(39, 49, 61, 0.8);
+}
+
 .prize-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2034,6 +2203,16 @@ body.bracket-focus #bracketSvg {
 }
 
 @media (max-width: 760px) {
+  .event-summary-highlights {
+    grid-template-columns: 1fr;
+    justify-items: start;
+  }
+
+  .event-summary-date-stack {
+    grid-template-columns: 1fr;
+    justify-items: start;
+  }
+
   .prize-grid {
     grid-template-columns: 1fr;
   }
@@ -2199,6 +2378,34 @@ body.bracket-focus #bracketSvg {
   .event-summary-slots {
     font-size: 18px;
     padding: 7px 14px;
+  }
+
+  .event-summary-highlights {
+    padding: 16px;
+    border-radius: 20px;
+  }
+
+  .event-summary-calendar {
+    width: 92px;
+    min-width: 92px;
+    padding: 18px 12px 12px;
+  }
+
+  .event-summary-calendar-day {
+    font-size: 36px;
+  }
+
+  .event-summary-date-value {
+    font-size: 28px;
+  }
+
+  .event-summary-date-note {
+    font-size: 14px;
+  }
+
+  .event-summary-countdown {
+    min-width: 0;
+    transform: none;
   }
 
   .prize-card {
