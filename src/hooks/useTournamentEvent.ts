@@ -162,21 +162,27 @@ function getSnapshotChildCount(snapshot: DataSnapshot | null) {
   return childCount;
 }
 
-function isLegacyTestPlayer(player: PlayerRecord | null | undefined) {
+function isSeededTestPlayer(player: PlayerRecord | null | undefined) {
   if (!player) {
     return false;
   }
 
-  return /^Test Player \d+$/.test(player.name || '') && (player.aura || '') === 'Test aura';
+  const name = player.name || '';
+  const aura = player.aura || '';
+
+  return (
+    (/^Test Player \d+$/.test(name) && aura === 'Test aura') ||
+    /^Demo Player \d+$/.test(name)
+  );
 }
 
 function sanitizePersistedState(state: PersistedEventState): PersistedEventState {
   const nextPlayers = state.players
     .map((player) => normalizePlayerRecord(player))
-    .filter((player) => !isLegacyTestPlayer(player));
+    .filter((player) => !isSeededTestPlayer(player));
   const nextWaitingPlayers = state.waitingPlayers
     .map((player) => normalizePlayerRecord(player))
-    .filter((player) => !isLegacyTestPlayer(player));
+    .filter((player) => !isSeededTestPlayer(player));
   const nextRosterOrder = state.rosterOrder.map((entry) => normalizeRosterEntry(entry));
 
   if (
@@ -223,7 +229,7 @@ async function ensureEventDocument(eventRef: DatabaseReference) {
   });
 }
 
-async function purgeLegacyTestDataRemotelyIfNeeded(
+async function purgeSeededTestDataRemotelyIfNeeded(
   eventRef: DatabaseReference,
   participantsRef: DatabaseReference,
   waitlistRef: DatabaseReference,
@@ -241,10 +247,10 @@ async function purgeLegacyTestDataRemotelyIfNeeded(
     return;
   }
 
-  const participantsAreLegacyOnly = participantRecords.every((player) => isLegacyTestPlayer(player));
-  const waitlistIsLegacyOnly = waitlistRecords.every((player) => isLegacyTestPlayer(player));
+  const participantsAreSeededOnly = participantRecords.every((player) => isSeededTestPlayer(player));
+  const waitlistAreSeededOnly = waitlistRecords.every((player) => isSeededTestPlayer(player));
 
-  if (!participantsAreLegacyOnly || !waitlistIsLegacyOnly) {
+  if (!participantsAreSeededOnly || !waitlistAreSeededOnly) {
     return;
   }
 
@@ -348,7 +354,7 @@ export function useTournamentEvent() {
         }
 
         await ensureEventDocument(eventRef.current);
-        await purgeLegacyTestDataRemotelyIfNeeded(
+        await purgeSeededTestDataRemotelyIfNeeded(
           eventRef.current,
           participantsRef.current,
           waitlistRef.current,
