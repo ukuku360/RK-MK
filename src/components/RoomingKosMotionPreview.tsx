@@ -37,7 +37,13 @@ const dotSlice =
     throw new Error('Missing RoomingKos dot slice asset.');
   })();
 
-const slices = assetSlices.filter((slice) => slice.id !== 'slice-06');
+const stemSlice =
+  assetSlices.find((slice) => slice.id === 'slice-07') ??
+  (() => {
+    throw new Error('Missing RoomingKos stem slice asset.');
+  })();
+
+const slices = assetSlices.filter((slice) => slice.id !== 'slice-06' && slice.id !== 'slice-07');
 
 const wordBounds = slices.reduce(
   (bounds, slice) => ({
@@ -48,29 +54,33 @@ const wordBounds = slices.reduce(
 );
 
 const wordWidth = wordBounds.right - wordBounds.left;
-const lineWidth = wordWidth * 1.05;
-const lineLeft = wordBounds.left - (wordWidth * 0.025);
+const stemCenter = stemSlice.left + stemSlice.width / 2;
+
+const lineWidth = wordWidth * 1.1; 
+const lineLeft = stemCenter - lineWidth / 2;
 const lineTop = 106;
 
-const bounceSpan = wordWidth * 0.65;
-const bounceStart = wordBounds.left + (wordWidth - bounceSpan) / 2;
 const impactTop = lineTop - dotSlice.height * 0.62;
 
+const bounce1X = stemCenter - wordWidth * 0.35; 
+const bounce2X = stemCenter + wordWidth * 0.15; 
+const bounce3X = stemCenter + wordWidth * 0.35;
+
 const ballPath = {
-  startLeft: bounceStart - 10,
+  startLeft: bounce1X - wordWidth * 0.2,
   startTop: -40,
-  impactOneLeft: bounceStart + bounceSpan * 0.16,
+  impactOneLeft: bounce1X,
   impactOneTop: impactTop,
-  peakOneLeft: bounceStart + bounceSpan * 0.32,
-  peakOneTop: -15,
-  impactTwoLeft: bounceStart + bounceSpan * 0.50,
+  peakOneLeft: (bounce1X + bounce2X) / 2,
+  peakOneTop: -25,
+  impactTwoLeft: bounce2X,
   impactTwoTop: impactTop + 0.3,
-  peakTwoLeft: bounceStart + bounceSpan * 0.65,
+  peakTwoLeft: (bounce2X + bounce3X) / 2,
   peakTwoTop: 15,
-  impactThreeLeft: bounceStart + bounceSpan * 0.78,
+  impactThreeLeft: bounce3X,
   impactThreeTop: impactTop + 0.7,
-  peakThreeLeft: dotSlice.left + 6,
-  peakThreeTop: dotSlice.top - 45,
+  peakThreeLeft: stemCenter + wordWidth * 0.15,
+  peakThreeTop: dotSlice.top - 50,
   settlePrepLeft: dotSlice.left,
   settlePrepTop: dotSlice.top + 1.2,
   finalLeft: dotSlice.left,
@@ -113,6 +123,10 @@ export function RoomingKosMotionPreview() {
                     '--dot-top': `${dotSlice.top}%`,
                     '--dot-width': `${dotSlice.width}%`,
                     '--dot-height': `${dotSlice.height}%`,
+                    '--stem-left': formatPercent(stemSlice.left),
+                    '--stem-top': formatPercent(stemSlice.top),
+                    '--stem-width': formatPercent(stemSlice.width),
+                    '--stem-height': formatPercent(stemSlice.height),
                     '--line-left': formatPercent(lineLeft),
                     '--line-top': formatPercent(lineTop),
                     '--line-width': formatPercent(lineWidth),
@@ -135,7 +149,16 @@ export function RoomingKosMotionPreview() {
                   } as CSSProperties
                 }
               >
-                <div className="roomingkos-underline" aria-hidden="true" />
+                <div className="rk-mini-table" aria-hidden="true">
+                  <div className="rk-mini-table-leg rk-mini-table-leg--left" />
+                  <div className="rk-mini-table-leg rk-mini-table-leg--right" />
+                  <div className="rk-mini-table-surface" />
+                </div>
+                <div className="rk-dynamic-net" aria-hidden="true">
+                  <div className="rk-dynamic-net-mesh" />
+                  <div className="rk-dynamic-net-post" />
+                  <img src={stemSlice.source} className="rk-dynamic-net-stem" alt="" />
+                </div>
                 <span className="roomingkos-ball-shadow" aria-hidden="true" />
                 <span className="roomingkos-ball" aria-hidden="true">
                   <span className="roomingkos-ball-core roomingkos-ball-core--white" />

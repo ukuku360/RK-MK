@@ -458,16 +458,115 @@ h1 {
   width: 100%;
 }
 
-.roomingkos-underline {
+.rk-mini-table {
   position: absolute;
   left: var(--line-left);
   top: var(--line-top);
   width: var(--line-width);
-  height: 6px;
-  background: #1d4ed8;
-  border-radius: 999px;
-  animation: roomingkosLineEnter 420ms cubic-bezier(0.2, 0.85, 0.28, 1.15) 0.1s both;
+  height: 8px; /* Thickness of table top */
   z-index: 1;
+  animation: roomingkosLineEnter 420ms cubic-bezier(0.2, 0.85, 0.28, 1.15) 0.1s both;
+}
+
+.rk-mini-table-surface {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: #bbdefb; /* Pastel baby blue */
+  box-shadow: 
+    0 3px 0 #93c5fd, /* subtle 3d thickness */
+    0 8px 16px rgba(147, 197, 253, 0.3); /* subtle soft glow */
+  z-index: 2;
+  overflow: hidden; /* to contain the center line */
+}
+
+/* Subtle white center line */
+.rk-mini-table-surface::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: rgba(255, 255, 255, 0.6);
+  transform: translateX(-50%);
+}
+
+/* Magical 'i' stem net */
+.rk-dynamic-net-mesh {
+  position: absolute;
+  left: var(--stem-left);
+  top: var(--stem-top);
+  width: var(--stem-width);
+  height: var(--stem-height);
+  background: #ffffff;
+  border: 1.5px solid #93c5fd;
+  border-radius: 4px;
+  box-shadow: 2px 2px 4px rgba(0,0,0,0.05);
+  background-image: radial-gradient(#bbdefb 1.5px, transparent 1px);
+  background-size: 4px 4px;
+  background-position: center;
+  transform-origin: center center;
+  z-index: 3;
+  animation: roomingkosMeshVanish 4.15s linear 0.28s both;
+}
+
+.rk-dynamic-net-stem {
+  position: absolute;
+  left: var(--stem-left);
+  top: var(--stem-top);
+  width: var(--stem-width);
+  height: var(--stem-height);
+  object-fit: contain;
+  transform-origin: center center;
+  z-index: 4;
+  opacity: 0;
+  animation: roomingkosStemAppear 4.15s linear 0.28s both;
+}
+
+.rk-dynamic-net-post {
+  position: absolute;
+  left: calc(var(--stem-left) + var(--stem-width) / 2);
+  margin-left: -2px; /* Centers the 4px width */
+  top: calc(var(--stem-top) + var(--stem-height));
+  height: calc(var(--line-top) - (var(--stem-top) + var(--stem-height)));
+  width: 4px;
+  background: #93c5fd; /* matching the pastel blue table glow */
+  transform-origin: top center;
+  border-radius: 2px;
+  box-shadow: 2px 2px 4px rgba(0,0,0,0.05);
+  z-index: 2;
+  animation: roomingkosMeshVanish 4.15s linear 0.28s both;
+}
+
+@keyframes roomingkosMeshVanish {
+  0%, 82% { opacity: 1; transform: scale(1); }
+  90%, 100% { opacity: 0; transform: scale(0.8); }
+}
+
+@keyframes roomingkosStemAppear {
+  0%, 82% { opacity: 0; transform: scale(0.8); }
+  90%, 100% { opacity: 1; transform: scale(1); }
+}
+
+/* Tiny legs */
+.rk-mini-table-leg {
+  position: absolute;
+  top: 100%;
+  width: 6px;
+  height: 12px;
+  background: #cbd5e1; /* soft slate grey */
+  border-radius: 0 0 3px 3px;
+  box-shadow: inset 0 2px 0 rgba(0, 0, 0, 0.05);
+  z-index: 1;
+}
+
+.rk-mini-table-leg--left {
+  left: 12%;
+}
+
+.rk-mini-table-leg--right {
+  right: 12%;
 }
 
 @keyframes roomingkosLineEnter {
