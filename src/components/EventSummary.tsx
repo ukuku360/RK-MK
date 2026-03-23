@@ -70,18 +70,25 @@ export function EventSummary({
             <span className="event-summary-calendar-ring event-summary-calendar-ring-right" />
             <span className="event-summary-calendar-top">APR</span>
             <span className="event-summary-calendar-day">02</span>
-            <span className="event-summary-calendar-sticker">Play</span>
           </div>
-          <div className="event-summary-date-stack">
-            <div className="event-summary-date-copy">
-              <p className="event-summary-date-label">Event Day</p>
+          <div className="event-summary-meta">
+            <p className="event-summary-date-label">Event Day</p>
+            <div className="event-summary-meta-row">
               <p className="event-summary-date-value">April 2</p>
+              <span className="event-summary-meta-separator" aria-hidden="true" />
+              <div className="event-summary-time-inline" aria-label="Event starts at 6 PM">
+                <div className="event-summary-clock" aria-hidden="true">
+                  <span className="event-summary-clock-hand event-summary-clock-hand-hour" />
+                  <span className="event-summary-clock-hand event-summary-clock-hand-minute" />
+                  <span className="event-summary-clock-center" />
+                </div>
+                <span className="event-summary-time-inline-label">6 PM start</span>
+              </div>
             </div>
-            <div className="event-summary-countdown" aria-label={`Countdown ${countdownLabel}`}>
-              <span className="event-summary-countdown-kicker">Countdown</span>
-              <span className="event-summary-countdown-value">{countdownLabel}</span>
-              <span className="event-summary-countdown-note">Until game night</span>
-            </div>
+          </div>
+          <div className="event-summary-countdown-inline" aria-label={`Countdown ${countdownLabel}`}>
+            <span className="event-summary-countdown-inline-kicker">D-day</span>
+            <span className="event-summary-countdown-inline-value">{countdownLabel}</span>
           </div>
         </div>
         <ul className="prize-grid" aria-label="Prize tiers">
