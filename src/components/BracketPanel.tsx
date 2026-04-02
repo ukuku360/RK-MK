@@ -15,6 +15,7 @@ import {
 } from '../constants';
 import type { ProfileHandlerFactory } from '../hooks/useProfileCard';
 import type {
+  MatchScores,
   MatchWinners,
   PlayerRecord,
   RosterEntry,
@@ -24,8 +25,10 @@ import {
   getBracketEntrants,
   getFourthPlaceIndex,
   getMatchParticipantIndexes,
+  getMatchResolution,
   getResolvedMatchWinner,
   getThirdPlaceEntrantIndexes,
+  getWinnerKey,
 } from '../utils/bracket';
 import { makeProfileCardData } from '../utils/profile';
 import { shortenPlayerName } from '../utils/text';
@@ -33,24 +36,26 @@ import { shortenPlayerName } from '../utils/text';
 interface BracketPanelProps {
   players: PlayerRecord[];
   rosterOrder: RosterEntry[];
+  matchScores: MatchScores;
   matchWinners: MatchWinners;
   isRosterFinalized: boolean;
   isShufflingRoster: boolean;
   canUseRosterControls: boolean;
-  rosterStatus: string;
   isBracketFocus: boolean;
   getProfileHandlers: ProfileHandlerFactory;
   onDrawRoster: () => void;
   onToggleFocus: () => void;
-  onSelectWinner: (
-    childLevel: number,
-    childMatchIndex: number,
-    winnerEntrantIndex: number,
+  canUndoLastResult: boolean;
+  onUndoLastResult: () => void;
+  resultsReady: boolean;
+  onOpenResults: () => void;
+  onRequestMatchScore: (
+    matchLevel: number,
+    matchIndex: number,
     clientX?: number,
     clientY?: number,
   ) => void;
-  onSelectThirdPlaceWinner: (
-    winnerEntrantIndex: number,
+  onRequestThirdPlaceScore: (
     clientX?: number,
     clientY?: number,
   ) => void;
@@ -72,16 +77,24 @@ interface RenderNode {
   isEmpty: boolean;
   className: string;
   profileData: ReturnType<typeof makeProfileCardData>;
+}
+
+interface RenderMatchControl {
+  key: string;
+  x: number;
+  y: number;
+  label: string;
+  detail?: string;
+  variant?: 'default' | 'bye';
+  className: string;
   action?:
     | {
-        kind: 'winner';
-        childLevel: number;
-        childMatchIndex: number;
-        winnerEntrantIndex: number;
+        kind: 'match-score';
+        matchLevel: number;
+        matchIndex: number;
       }
     | {
-        kind: 'third-place';
-        winnerEntrantIndex: number;
+        kind: 'third-place-score';
       };
 }
 
@@ -114,23 +127,30 @@ function buildConnectorPath(
 export function BracketPanel({
   players,
   rosterOrder,
+  matchScores,
   matchWinners,
   isRosterFinalized,
   isShufflingRoster,
   canUseRosterControls,
-  rosterStatus,
   isBracketFocus,
   getProfileHandlers,
   onDrawRoster,
   onToggleFocus,
-  onSelectWinner,
-  onSelectThirdPlaceWinner,
+  canUndoLastResult,
+  onUndoLastResult,
+  resultsReady,
+  onOpenResults,
+  onRequestMatchScore,
+  onRequestThirdPlaceScore,
   onScroll,
 }: BracketPanelProps) {
   const {
+    completedMatchCount,
     connectors,
+    matchControls,
     nodes,
     placementPanel,
+    progressPercent,
     svgHeight,
     svgWidth,
   } = useMemo(() => {
@@ -144,6 +164,7 @@ export function BracketPanel({
     const rounds = [16, 8, 4, 2, 1];
     const levelNodes: Array<Array<{ x: number; y: number; isLeaf: boolean; isEmpty: boolean; name?: string }>> = [];
     const nextConnectors: Connector[] = [];
+    const nextMatchControls: RenderMatchControl[] = [];
     const nextNodes: RenderNode[] = [];
     const canControl = isRosterFinalized && canUseRosterControls;
     const slotSpacing = NODE_WIDTH + SLOT_GAP;
@@ -155,11 +176,28 @@ export function BracketPanel({
           getMatchParticipantIndexes(3, matchIndex, entrants, matchWinners).length === 2,
       ) ||
       previewThirdPlaceEntrants.some((entrantIndex) => entrantIndex !== undefined) ||
-      matchWinners[THIRD_PLACE_KEY] !== undefined;
+      matchWinners[THIRD_PLACE_KEY] !== undefined ||
+      matchScores[THIRD_PLACE_KEY] !== undefined;
     const resolvedSvgWidth =
       baseSvgWidth + (showThirdPlacePanel ? THIRD_PLACE_PANEL_GAP + THIRD_PLACE_PANEL_WIDTH : 0);
     const resolvedSvgHeight = TOP_PADDING + ROW_GAP * (rounds.length - 1) + BOTTOM_PADDING;
     const yBottom = TOP_PADDING + ROW_GAP * (rounds.length - 1);
+    const totalMatchCount = 16;
+    let nextCompletedMatchCount = 0;
+
+    for (let levelIndex = 1; levelIndex < rounds.length; levelIndex += 1) {
+      for (let matchIndex = 0; matchIndex < rounds[levelIndex]; matchIndex += 1) {
+        const resolution = getMatchResolution(levelIndex, matchIndex, entrants, matchWinners);
+
+        if (resolution.state === 'resolved') {
+          nextCompletedMatchCount += 1;
+        }
+      }
+    }
+
+    if (matchWinners[THIRD_PLACE_KEY] !== undefined) {
+      nextCompletedMatchCount += 1;
+    }
 
     levelNodes[0] = entrants.slice(0, 16).map((player, index) => ({
       x: X_PADDING + slotSpacing * index,
@@ -201,6 +239,63 @@ export function BracketPanel({
       });
     }
 
+    for (let levelIndex = 1; levelIndex < rounds.length; levelIndex += 1) {
+      const currentLevel = levelNodes[levelIndex];
+      const previousLevel = levelNodes[levelIndex - 1];
+
+      currentLevel.forEach((node, index) => {
+        const leftNode = previousLevel[index * 2];
+        const participantIndexes = getMatchParticipantIndexes(
+          levelIndex,
+          index,
+          entrants,
+          matchWinners,
+        );
+        const score = matchScores[getWinnerKey(levelIndex, index)];
+        const resolution = getMatchResolution(levelIndex, index, entrants, matchWinners);
+        const isPlayable = participantIndexes.length === 2;
+
+        if (!isPlayable && !score) {
+          return;
+        }
+
+        const y1 = leftNode.y + NODE_HEIGHT / 2;
+        const y2 = node.y - NODE_HEIGHT / 2;
+        const isByeResolved = resolution.state === 'resolved' && resolution.decidedBy === 'bye';
+        const label =
+          score
+            ? `${score.left} - ${score.right}`
+            : isByeResolved
+              ? 'BYE'
+              : 'Score';
+
+        nextMatchControls.push({
+          key: `match-control-${levelIndex}-${index}`,
+          x: node.x,
+          y: (y1 + y2) / 2,
+          label,
+          detail: isByeResolved ? 'AUTO ADVANCE' : undefined,
+          variant: isByeResolved ? 'bye' : 'default',
+          className: [
+            'match-control',
+            isByeResolved ? 'match-control-bye' : '',
+            isPlayable && canControl ? 'match-control-clickable' : '',
+            score ? 'match-control-resolved' : '',
+          ]
+            .filter(Boolean)
+            .join(' '),
+          action:
+            isPlayable && canControl
+              ? {
+                  kind: 'match-score',
+                  matchLevel: levelIndex,
+                  matchIndex: index,
+                }
+              : undefined,
+        });
+      });
+    }
+
     levelNodes.forEach((level, levelIndex) => {
       level.forEach((node, nodeIndex) => {
         let textPrimary = '';
@@ -209,7 +304,6 @@ export function BracketPanel({
         let isLoserNode = false;
         let isChampionNode = false;
         let profileData: ReturnType<typeof makeProfileCardData> = null;
-        let action: RenderNode['action'];
 
         if (node.isLeaf) {
           textPrimary = node.name || '';
@@ -227,15 +321,6 @@ export function BracketPanel({
               isWinnerNode = true;
             } else if (parentWinner !== undefined) {
               isLoserNode = true;
-            }
-
-            if (canControl) {
-              action = {
-                kind: 'winner',
-                childLevel: 0,
-                childMatchIndex: nodeIndex,
-                winnerEntrantIndex: nodeIndex,
-              };
             }
           }
         } else if (levelIndex === 4) {
@@ -281,22 +366,12 @@ export function BracketPanel({
             } else if (parentWinner !== undefined) {
               isLoserNode = true;
             }
-
-            if (canControl) {
-              action = {
-                kind: 'winner',
-                childLevel: levelIndex,
-                childMatchIndex: nodeIndex,
-                winnerEntrantIndex: winnerIndex,
-              };
-            }
           } else {
             textPrimary = '?';
           }
         }
 
         const classNames = [
-          action ? 'node-clickable' : '',
           isWinnerNode ? 'node-winner' : '',
           isLoserNode ? 'node-loser' : '',
           isChampionNode ? 'node-champion' : '',
@@ -315,7 +390,6 @@ export function BracketPanel({
           isEmpty: node.isEmpty,
           className: classNames,
           profileData,
-          action,
         });
       });
     });
@@ -354,14 +428,31 @@ export function BracketPanel({
         nextConnectors.push(buildConnectorPath(childNode, thirdPlaceWinnerNode, 'placement-line'));
       });
 
+      if (playoffReady || matchScores[THIRD_PLACE_KEY]) {
+        const thirdPlaceScore = matchScores[THIRD_PLACE_KEY];
+        const y1 = thirdPlaceLoserNodes[0].y + NODE_HEIGHT / 2;
+        const y2 = thirdPlaceWinnerNode.y - NODE_HEIGHT / 2;
+
+        nextMatchControls.push({
+          key: 'third-place-score-control',
+          x: thirdPlaceWinnerNode.x,
+          y: (y1 + y2) / 2,
+          label: thirdPlaceScore ? `${thirdPlaceScore.left} - ${thirdPlaceScore.right}` : 'Score',
+          className: [
+            'match-control',
+            canControl && playoffReady ? 'match-control-clickable' : '',
+            thirdPlaceScore ? 'match-control-resolved' : '',
+          ]
+            .filter(Boolean)
+            .join(' '),
+          action: canControl && playoffReady ? { kind: 'third-place-score' } : undefined,
+        });
+      }
+
       thirdPlaceLoserNodes.forEach((childNode, index) => {
         const entrantIndex = thirdPlaceEntrants[index];
         const player = entrantIndex !== undefined ? entrants[entrantIndex] : null;
-        const canSelect = Boolean(
-          canControl && playoffReady && entrantIndex !== undefined && player && !player.empty,
-        );
         const classNames = [
-          canSelect ? 'node-clickable' : '',
           entrantIndex !== undefined && thirdPlaceWinnerIndex === entrantIndex ? 'node-winner' : '',
           thirdPlaceWinnerIndex !== undefined &&
           entrantIndex !== undefined &&
@@ -384,13 +475,6 @@ export function BracketPanel({
           isEmpty: entrantIndex === undefined,
           className: classNames,
           profileData: makeProfileCardData(player, `Semifinal ${index + 1} Loser`),
-          action:
-            canSelect && entrantIndex !== undefined
-              ? {
-                  kind: 'third-place',
-                  winnerEntrantIndex: entrantIndex,
-                }
-              : undefined,
         });
       });
 
@@ -437,23 +521,27 @@ export function BracketPanel({
     }
 
     return {
+      completedMatchCount: nextCompletedMatchCount,
       connectors: nextConnectors,
+      matchControls: nextMatchControls,
       nodes: nextNodes,
       placementPanel: nextPlacementPanel,
+      progressPercent: (nextCompletedMatchCount / totalMatchCount) * 100,
       svgWidth: resolvedSvgWidth,
       svgHeight: resolvedSvgHeight,
     };
-  }, [canUseRosterControls, isRosterFinalized, matchWinners, players, rosterOrder]);
+  }, [canUseRosterControls, isRosterFinalized, matchScores, matchWinners, players, rosterOrder]);
 
   const drawButtonDisabled = !canUseRosterControls || isShufflingRoster || players.length < 2;
   const drawButtonText = isShufflingRoster ? 'Drawing...' : 'Draw Roster';
+  const progressWidth =
+    progressPercent === 0 ? '0%' : `max(${progressPercent.toFixed(2)}%, 26px)`;
 
   return (
     <section className="panel bracket-panel">
       <div className="bracket-header">
         <div>
           <h2 className="bracket-title">Bracket (16 Entrant Layout)</h2>
-          <p className="roster-status">{rosterStatus}</p>
         </div>
         <div className="bracket-controls">
           <button
@@ -475,6 +563,32 @@ export function BracketPanel({
           </button>
         </div>
       </div>
+      <section className="bracket-progress-panel" aria-label="Bracket progress">
+        <div className="bracket-progress-top">
+          <div className="bracket-progress-copy">
+            <h3 className="bracket-progress-title">{completedMatchCount} / 16</h3>
+            <p className="bracket-progress-note">matches</p>
+          </div>
+          {canUndoLastResult ? (
+            <button
+              type="button"
+              className="bracket-progress-undo"
+              onClick={onUndoLastResult}
+            >
+              Undo
+            </button>
+          ) : null}
+        </div>
+        <div className="bracket-progress-bar" aria-hidden="true">
+          <div
+            className="bracket-progress-bar-fill"
+            style={{ width: progressWidth }}
+          >
+            <span className="bracket-progress-ball-shadow" />
+            <span className="bracket-progress-ball" />
+          </div>
+        </div>
+      </section>
       <div className="bracket-stage">
         <div className="bracket-shell" onScroll={onScroll}>
           <div className={`shuffle-overlay${isShufflingRoster ? ' visible' : ''}`} aria-hidden={!isShufflingRoster}>
@@ -535,48 +649,78 @@ export function BracketPanel({
                   >
                     {placementPanel.playoffReady
                       ? placementPanel.canControl
-                        ? 'CLICK A PLAYER TO LOCK 3RD PLACE.'
-                        : 'ADMIN LOCKS 3RD PLACE FROM THIS PANEL.'
+                        ? 'CLICK THE SCORE CHIP TO LOCK 3RD PLACE.'
+                        : 'ADMIN LOCKS 3RD PLACE FROM THE SCORE CHIP.'
                       : 'LOSERS AUTO-DROP IN AS THE SEMIS FINISH.'}
                   </text>
                 </>
               ) : null}
             </g>
+            <g id="match-controls">
+              {matchControls.map((control) => (
+                <g
+                  key={control.key}
+                  className={control.className}
+                  onClick={(event) => {
+                    if (!control.action) {
+                      return;
+                    }
+
+                    if (control.action.kind === 'match-score') {
+                      onRequestMatchScore(
+                        control.action.matchLevel,
+                        control.action.matchIndex,
+                        event.clientX,
+                        event.clientY,
+                      );
+                      return;
+                    }
+
+                    onRequestThirdPlaceScore(event.clientX, event.clientY);
+                  }}
+                >
+	                  <rect
+	                    x={control.x - (control.variant === 'bye' ? 62 : 44)}
+	                    y={control.y - (control.variant === 'bye' ? 32 : 24)}
+	                    width={control.variant === 'bye' ? 124 : 88}
+	                    height={control.variant === 'bye' ? 64 : 48}
+	                    rx={control.variant === 'bye' ? 28 : 24}
+	                    className="match-control-hitbox"
+	                  />
+	                  <rect
+	                    x={control.x - (control.variant === 'bye' ? 52 : 34)}
+	                    y={control.y - (control.variant === 'bye' ? 22 : 16)}
+	                    width={control.variant === 'bye' ? 104 : 68}
+	                    height={control.variant === 'bye' ? 44 : 32}
+	                    rx={control.variant === 'bye' ? 22 : 16}
+	                    className="match-control-pill"
+	                  />
+	                  <text
+	                    className={`match-control-label${control.detail ? ' match-control-label-stacked' : ''}`}
+	                    x={control.x}
+	                    y={control.y + (control.detail ? -1 : 5)}
+	                  >
+	                    {control.label}
+	                  </text>
+                    {control.detail ? (
+	                  <text className="match-control-detail" x={control.x} y={control.y + 14}>
+	                    {control.detail}
+	                  </text>
+                    ) : null}
+	                </g>
+	              ))}
+            </g>
             <g id="nodes">
               {nodes.map((node) => {
                 const profileHandlers = getProfileHandlers(node.profileData, {
-                  enablePin: !node.action,
+                  enablePin: true,
                 }) as ComponentProps<'g'>;
-                const { onClick: profileOnClick, ...restProfileHandlers } = profileHandlers;
 
                 return (
                   <g
                     key={node.key}
                     className={node.className}
-                    {...restProfileHandlers}
-                    onClick={(event) => {
-                      if (!node.action) {
-                        profileOnClick?.(event);
-                        return;
-                      }
-
-                      if (node.action.kind === 'winner') {
-                        onSelectWinner(
-                          node.action.childLevel,
-                          node.action.childMatchIndex,
-                          node.action.winnerEntrantIndex,
-                          event.clientX,
-                          event.clientY,
-                        );
-                        return;
-                      }
-
-                      onSelectThirdPlaceWinner(
-                        node.action.winnerEntrantIndex,
-                        event.clientX,
-                        event.clientY,
-                      );
-                    }}
+                    {...profileHandlers}
                   >
                     <rect
                       x={node.x - NODE_WIDTH / 2}
@@ -600,6 +744,16 @@ export function BracketPanel({
             </g>
           </svg>
         </div>
+        {resultsReady ? (
+          <button
+            type="button"
+            className="bracket-result-tab"
+            onClick={onOpenResults}
+            aria-label="Open tournament results"
+          >
+            <span className="bracket-result-kicker">Result</span>
+          </button>
+        ) : null}
       </div>
     </section>
   );

@@ -4,6 +4,7 @@ import {
 } from '../constants';
 import type {
   BracketResolution,
+  MatchScores,
   MatchWinners,
   PlayerRecord,
   RosterEntry,
@@ -126,27 +127,40 @@ export function getWinnerKey(level: number, matchIndex: number): string {
   return `${level}-${matchIndex}`;
 }
 
-export function pruneMatchWinnersForSlot(
+function pruneMatchStateForSlot<T extends Record<string, unknown>>(
   slotIndex: number,
-  winners: MatchWinners,
-): MatchWinners {
-  const nextWinners = { ...winners };
-
+  state: T,
+): T {
+  const nextState = { ...state };
   if (!Number.isInteger(slotIndex) || slotIndex < 0) {
-    return nextWinners;
+    return nextState;
   }
 
   let level = 1;
   let matchIndex = Math.floor(slotIndex / 2);
 
   while (level <= 4) {
-    delete nextWinners[getWinnerKey(level, matchIndex)];
+    delete nextState[getWinnerKey(level, matchIndex)];
     matchIndex = Math.floor(matchIndex / 2);
     level += 1;
   }
 
-  delete nextWinners[THIRD_PLACE_KEY];
-  return nextWinners;
+  delete nextState[THIRD_PLACE_KEY];
+  return nextState;
+}
+
+export function pruneMatchWinnersForSlot(
+  slotIndex: number,
+  winners: MatchWinners,
+): MatchWinners {
+  return pruneMatchStateForSlot(slotIndex, winners);
+}
+
+export function pruneMatchScoresForSlot(
+  slotIndex: number,
+  scores: MatchScores,
+): MatchScores {
+  return pruneMatchStateForSlot(slotIndex, scores);
 }
 
 function isActiveEntrantIndex(
@@ -411,6 +425,36 @@ export function clearDependentWinners(
   return nextWinners;
 }
 
+export function clearDependentMatchScores(
+  scores: MatchScores,
+  level: number,
+  matchIndex: number,
+): MatchScores {
+  const nextScores = { ...scores };
+
+  function walk(currentLevel: number, currentMatchIndex: number) {
+    const key = getWinnerKey(currentLevel, currentMatchIndex);
+
+    if (nextScores[key] === undefined) {
+      return;
+    }
+
+    delete nextScores[key];
+
+    if (currentLevel <= 3) {
+      delete nextScores[THIRD_PLACE_KEY];
+    }
+
+    const parentLevel = currentLevel + 1;
+    if (parentLevel <= 4) {
+      walk(parentLevel, Math.floor(currentMatchIndex / 2));
+    }
+  }
+
+  walk(level, matchIndex);
+  return nextScores;
+}
+
 export function buildPromotedParticipantState(
   waitingPlayer: PlayerRecord | null | undefined,
   displacedPlayer: PlayerRecord | null | undefined,
@@ -432,6 +476,7 @@ interface ParticipantRemovalStateInput {
   rosterOrder: RosterEntry[];
   isRosterFinalized: boolean;
   matchWinners: MatchWinners;
+  matchScores: MatchScores;
   removedPlayer: PlayerRecord;
   replacementPlayer?: PlayerRecord | null;
   preferredIndex?: number;
@@ -443,6 +488,7 @@ export function computeParticipantRemovalState({
   rosterOrder,
   isRosterFinalized,
   matchWinners,
+  matchScores,
   removedPlayer,
   replacementPlayer = null,
   preferredIndex = -1,
@@ -451,6 +497,7 @@ export function computeParticipantRemovalState({
   const nextWaitingPlayers = [...waitingPlayers];
   let nextRosterOrder = [...rosterOrder];
   let nextMatchWinners = { ...matchWinners };
+  let nextMatchScores = { ...matchScores };
 
   const removalIndex =
     Number.isInteger(preferredIndex) &&
@@ -483,6 +530,7 @@ export function computeParticipantRemovalState({
         ? buildRosterEntryForPlayer(replacementPlayer, nextRosterOrder)
         : null;
       nextMatchWinners = pruneMatchWinnersForSlot(slotIndex, nextMatchWinners);
+      nextMatchScores = pruneMatchScoresForSlot(slotIndex, nextMatchScores);
     }
   }
 
@@ -491,5 +539,6 @@ export function computeParticipantRemovalState({
     waitingPlayers: nextWaitingPlayers,
     rosterOrder: nextRosterOrder,
     matchWinners: nextMatchWinners,
+    matchScores: nextMatchScores,
   };
 }

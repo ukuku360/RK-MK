@@ -25,6 +25,9 @@ import {
 } from '../constants';
 import { getFirebaseDatabase, isFirebaseConfigured } from '../lib/firebase';
 import type {
+  MatchHistory,
+  MatchHistoryEntry,
+  MatchScores,
   MatchWinners,
   PersistedEventState,
   PlayerRecord,
@@ -34,13 +37,17 @@ import type {
 import {
   buildPromotedParticipantState,
   buildRosterEntryForPlayer,
+  clearDependentMatchScores,
   clearDependentWinners,
   computeParticipantRemovalState,
   createEmptyBracketEntrant,
   findRosterSlotIndexForPlayer,
   getBracketEntrants,
+  getMatchParticipantIndexes,
   getResolvedMatchWinner,
   getThirdPlaceEntrantIndexes,
+  getWinnerKey,
+  pruneMatchScoresForSlot,
   pruneMatchWinnersForSlot,
   shuffleList,
 } from '../utils/bracket';
@@ -50,6 +57,8 @@ interface SubmitPlayerInput {
   aura: string;
   unitNumber: string;
 }
+
+const MAX_MATCH_HISTORY = 24;
 
 function copyToClipboard(value: string) {
   if (!navigator.clipboard || !window.isSecureContext) {
@@ -176,6 +185,111 @@ function isSeededTestPlayer(player: PlayerRecord | null | undefined) {
   );
 }
 
+function normalizeMatchScores(matchScores: MatchScores | null | undefined): MatchScores {
+  if (!matchScores || typeof matchScores !== 'object') {
+    return {};
+  }
+
+  const nextMatchScores: MatchScores = {};
+
+  Object.entries(matchScores).forEach(([key, value]) => {
+    const left =
+      typeof value?.left === 'number' && Number.isInteger(value.left) && value.left >= 0
+        ? value.left
+        : undefined;
+    const right =
+      typeof value?.right === 'number' && Number.isInteger(value.right) && value.right >= 0
+        ? value.right
+        : undefined;
+
+    if (left === undefined || right === undefined || left === right) {
+      return;
+    }
+
+    nextMatchScores[key] = { left, right };
+  });
+
+  return nextMatchScores;
+}
+
+function normalizeMatchHistory(matchHistory: MatchHistory | null | undefined): MatchHistory {
+  if (!Array.isArray(matchHistory)) {
+    return [];
+  }
+
+  return matchHistory
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') {
+        return null;
+      }
+
+      const leftScore =
+        typeof entry.leftScore === 'number' && Number.isInteger(entry.leftScore) && entry.leftScore >= 0
+          ? entry.leftScore
+          : undefined;
+      const rightScore =
+        typeof entry.rightScore === 'number' && Number.isInteger(entry.rightScore) && entry.rightScore >= 0
+          ? entry.rightScore
+          : undefined;
+
+      if (
+        !entry.id ||
+        !entry.scoreKey ||
+        !entry.title ||
+        !entry.leftPlayerName ||
+        !entry.rightPlayerName ||
+        !entry.winnerName ||
+        leftScore === undefined ||
+        rightScore === undefined ||
+        leftScore === rightScore
+      ) {
+        return null;
+      }
+
+      return {
+        id: String(entry.id),
+        scoreKey: String(entry.scoreKey),
+        title: String(entry.title),
+        leftPlayerName: String(entry.leftPlayerName),
+        rightPlayerName: String(entry.rightPlayerName),
+        leftScore,
+        rightScore,
+        winnerName: String(entry.winnerName),
+        recordedAt:
+          typeof entry.recordedAt === 'number' && Number.isFinite(entry.recordedAt)
+            ? entry.recordedAt
+            : Date.now(),
+        previousMatchWinners:
+          entry.previousMatchWinners && typeof entry.previousMatchWinners === 'object'
+            ? entry.previousMatchWinners
+            : {},
+        previousMatchScores: normalizeMatchScores(entry.previousMatchScores),
+      } satisfies MatchHistoryEntry;
+    })
+    .filter((entry): entry is MatchHistoryEntry => entry !== null)
+    .slice(-MAX_MATCH_HISTORY);
+}
+
+function getMatchTitle(matchLevel: number) {
+  if (matchLevel === 1) {
+    return 'Round 1';
+  }
+
+  if (matchLevel === 2) {
+    return 'Quarterfinal';
+  }
+
+  if (matchLevel === 3) {
+    return 'Semifinal';
+  }
+
+  if (matchLevel === 4) {
+    return 'Final';
+  }
+
+  return 'Match';
+}
+
 function sanitizePersistedState(state: PersistedEventState): PersistedEventState {
   const nextPlayers = state.players
     .map((player) => normalizePlayerRecord(player))
@@ -184,6 +298,8 @@ function sanitizePersistedState(state: PersistedEventState): PersistedEventState
     .map((player) => normalizePlayerRecord(player))
     .filter((player) => !isSeededTestPlayer(player));
   const nextRosterOrder = state.rosterOrder.map((entry) => normalizeRosterEntry(entry));
+  const nextMatchScores = normalizeMatchScores(state.matchScores);
+  const nextMatchHistory = normalizeMatchHistory(state.matchHistory);
 
   if (
     nextPlayers.length === state.players.length &&
@@ -195,6 +311,8 @@ function sanitizePersistedState(state: PersistedEventState): PersistedEventState
       players: nextPlayers,
       waitingPlayers: nextWaitingPlayers,
       rosterOrder: nextRosterOrder,
+      matchScores: nextMatchScores,
+      matchHistory: nextMatchHistory,
     };
   }
 
@@ -205,6 +323,8 @@ function sanitizePersistedState(state: PersistedEventState): PersistedEventState
     rosterOrder: nextRosterOrder,
     isRosterFinalized: false,
     matchWinners: {},
+    matchScores: {},
+    matchHistory: [],
   };
 }
 
@@ -260,6 +380,8 @@ async function purgeSeededTestDataRemotelyIfNeeded(
     rosterOrder: null,
     isRosterFinalized: false,
     matchWinners: null,
+    matchScores: null,
+    matchHistory: null,
     updatedAt: serverTimestamp(),
   });
 }
@@ -271,6 +393,8 @@ export function useTournamentEvent() {
   const [rosterOrder, setRosterOrder] = useState<RosterEntry[]>([]);
   const [isRosterFinalized, setIsRosterFinalized] = useState(false);
   const [matchWinners, setMatchWinners] = useState<MatchWinners>({});
+  const [matchScores, setMatchScores] = useState<MatchScores>({});
+  const [matchHistory, setMatchHistory] = useState<MatchHistory>([]);
   const [isFirebaseAvailable, setIsFirebaseAvailable] = useState(true);
   const [shareStatus, setShareStatus] = useState('');
   const [isShufflingRoster, setIsShufflingRoster] = useState(false);
@@ -305,6 +429,8 @@ export function useTournamentEvent() {
           ? state.matchWinners
           : {},
       );
+      setMatchScores(normalizeMatchScores(state.matchScores));
+      setMatchHistory(normalizeMatchHistory(state.matchHistory));
     } catch (error) {
       console.error(error);
     } finally {
@@ -323,6 +449,8 @@ export function useTournamentEvent() {
       rosterOrder,
       isRosterFinalized,
       matchWinners,
+      matchScores,
+      matchHistory,
       updatedAt: Date.now(),
     };
 
@@ -330,7 +458,7 @@ export function useTournamentEvent() {
       `${EVENT_STATE_STORAGE_PREFIX}${eventId}`,
       JSON.stringify(persistedState),
     );
-  }, [eventId, isRosterFinalized, matchWinners, players, rosterOrder, waitingPlayers]);
+  }, [eventId, isRosterFinalized, matchHistory, matchScores, matchWinners, players, rosterOrder, waitingPlayers]);
 
   useEffect(() => {
     if (!isFirebaseConfigured()) {
@@ -414,6 +542,8 @@ export function useTournamentEvent() {
                 rosterOrder?: RosterEntry[];
                 isRosterFinalized?: boolean;
                 matchWinners?: MatchWinners;
+                matchScores?: MatchScores;
+                matchHistory?: MatchHistory;
               };
 
               setRosterOrder(
@@ -427,6 +557,8 @@ export function useTournamentEvent() {
                   ? data.matchWinners
                   : {},
               );
+              setMatchScores(normalizeMatchScores(data?.matchScores));
+              setMatchHistory(normalizeMatchHistory(data?.matchHistory));
             },
             (error) => {
               console.error('[RK Events] Event listener error:', error);
@@ -591,6 +723,8 @@ export function useTournamentEvent() {
       setRosterOrder(finalizedIds);
       setIsRosterFinalized(true);
       setMatchWinners({});
+      setMatchScores({});
+      setMatchHistory([]);
       setIsShufflingRoster(false);
 
       if (isFirebaseAvailable && eventRef.current) {
@@ -598,6 +732,8 @@ export function useTournamentEvent() {
           isRosterFinalized: true,
           rosterOrder: finalizedIds,
           matchWinners: {},
+          matchScores: {},
+          matchHistory: [],
           maxPlayers: MAX_PLAYERS,
           updatedAt: serverTimestamp(),
         }).catch((error) => {
@@ -616,6 +752,11 @@ export function useTournamentEvent() {
 
       const player = players[index];
       const waitingPlayer = waitingPlayers[0] || null;
+      const bracketSlotIndex =
+        isRosterFinalized && rosterOrder.length
+          ? findRosterSlotIndexForPlayer(player, rosterOrder)
+          : -1;
+      const shouldClearMatchHistory = bracketSlotIndex !== -1;
 
       if (!isFirebaseAvailable || !participantsRef.current || !eventRef.current || !player.id) {
         const promotedPlayer = buildPromotedParticipantState(waitingPlayer, player);
@@ -625,6 +766,7 @@ export function useTournamentEvent() {
           rosterOrder,
           isRosterFinalized,
           matchWinners,
+          matchScores,
           removedPlayer: player,
           replacementPlayer: promotedPlayer,
           preferredIndex: index,
@@ -634,6 +776,10 @@ export function useTournamentEvent() {
         setWaitingPlayers(nextState.waitingPlayers);
         setRosterOrder(nextState.rosterOrder);
         setMatchWinners(nextState.matchWinners);
+        setMatchScores(nextState.matchScores);
+        if (shouldClearMatchHistory) {
+          setMatchHistory([]);
+        }
         return;
       }
 
@@ -656,7 +802,7 @@ export function useTournamentEvent() {
         }
 
         if (isRosterFinalized && rosterOrder.length) {
-          const slotIndex = findRosterSlotIndexForPlayer(player, rosterOrder);
+          const slotIndex = bracketSlotIndex;
 
           if (slotIndex !== -1) {
             const nextOrder = [...rosterOrder];
@@ -666,6 +812,8 @@ export function useTournamentEvent() {
 
             updates.rosterOrder = nextOrder;
             updates.matchWinners = pruneMatchWinnersForSlot(slotIndex, matchWinners);
+            updates.matchScores = pruneMatchScoresForSlot(slotIndex, matchScores);
+            updates.matchHistory = [];
           }
         }
 
@@ -677,6 +825,7 @@ export function useTournamentEvent() {
           rosterOrder,
           isRosterFinalized,
           matchWinners,
+          matchScores,
           removedPlayer: player,
           replacementPlayer: promotedPlayer,
           preferredIndex: index,
@@ -686,12 +835,16 @@ export function useTournamentEvent() {
         setWaitingPlayers(nextState.waitingPlayers);
         setRosterOrder(nextState.rosterOrder);
         setMatchWinners(nextState.matchWinners);
+        setMatchScores(nextState.matchScores);
+        if (shouldClearMatchHistory) {
+          setMatchHistory([]);
+        }
       } catch (error) {
         console.error(error);
         setShareStatus('Unable to delete participant. Please verify your Firebase permissions.');
       }
     },
-    [isFirebaseAvailable, isRosterFinalized, matchWinners, players, rosterOrder, waitingPlayers],
+    [isFirebaseAvailable, isRosterFinalized, matchScores, matchWinners, players, rosterOrder, waitingPlayers],
   );
 
   const deleteWaitingParticipant = useCallback(
@@ -721,6 +874,8 @@ export function useTournamentEvent() {
     setRosterOrder([]);
     setIsRosterFinalized(false);
     setMatchWinners({});
+    setMatchScores({});
+    setMatchHistory([]);
     setIsShufflingRoster(false);
 
     if (!isFirebaseAvailable || !eventRef.current) {
@@ -732,6 +887,8 @@ export function useTournamentEvent() {
         rosterOrder: [],
         isRosterFinalized: false,
         matchWinners: {},
+        matchScores: {},
+        matchHistory: [],
         updatedAt: serverTimestamp(),
       });
     } catch (error) {
@@ -740,52 +897,114 @@ export function useTournamentEvent() {
     }
   }, [isFirebaseAvailable]);
 
-  const selectWinner = useCallback(
+  const submitMatchScore = useCallback(
     (
-      childLevel: number,
-      childMatchIndex: number,
-      winnerEntrantIndex: number,
+      matchLevel: number,
+      matchIndex: number,
+      leftScore: number,
+      rightScore: number,
     ): SelectionResult => {
       if (!isRosterFinalized) {
         return { kind: 'noop' };
       }
 
-      const parentLevel = childLevel + 1;
-      const parentMatchIndex = Math.floor(childMatchIndex / 2);
-
-      if (parentLevel > 4) {
+      if (
+        matchLevel < 1 ||
+        matchLevel > 4 ||
+        !Number.isInteger(leftScore) ||
+        !Number.isInteger(rightScore) ||
+        leftScore < 0 ||
+        rightScore < 0 ||
+        leftScore === rightScore
+      ) {
         return { kind: 'noop' };
       }
 
-      const key = `${parentLevel}-${parentMatchIndex}`;
-      const previousWinner = matchWinners[key];
+      const entrants = getBracketEntrants(players, rosterOrder, isRosterFinalized);
+      while (entrants.length < MAX_PLAYERS) {
+        entrants.push(createEmptyBracketEntrant());
+      }
 
-      if (previousWinner === winnerEntrantIndex) {
+      const participantIndexes = getMatchParticipantIndexes(
+        matchLevel,
+        matchIndex,
+        entrants,
+        matchWinners,
+      );
+
+      if (participantIndexes.length !== 2) {
+        return { kind: 'noop' };
+      }
+
+      const leftPlayer = entrants[participantIndexes[0]];
+      const rightPlayer = entrants[participantIndexes[1]];
+
+      if (!leftPlayer || !rightPlayer || leftPlayer.empty || rightPlayer.empty) {
+        return { kind: 'noop' };
+      }
+
+      const winnerEntrantIndex = participantIndexes[leftScore > rightScore ? 0 : 1];
+      const key = getWinnerKey(matchLevel, matchIndex);
+      const previousWinner = matchWinners[key];
+      const previousScore = matchScores[key];
+
+      if (
+        previousWinner === winnerEntrantIndex &&
+        previousScore?.left === leftScore &&
+        previousScore?.right === rightScore
+      ) {
         return { kind: 'noop' };
       }
 
       let nextWinners = { ...matchWinners };
+      let nextMatchScores = { ...matchScores };
+      const winnerName =
+        winnerEntrantIndex === participantIndexes[0] ? leftPlayer.name : rightPlayer.name;
 
-      if (previousWinner !== undefined) {
-        const grandparentLevel = parentLevel + 1;
-        const grandparentMatchIndex = Math.floor(parentMatchIndex / 2);
+      if (previousWinner !== undefined && previousWinner !== winnerEntrantIndex) {
+        const nextLevel = matchLevel + 1;
+        const nextMatchIndex = Math.floor(matchIndex / 2);
 
-        if (grandparentLevel <= 4) {
-          nextWinners = clearDependentWinners(nextWinners, grandparentLevel, grandparentMatchIndex);
+        if (nextLevel <= 4) {
+          nextWinners = clearDependentWinners(nextWinners, nextLevel, nextMatchIndex);
+          nextMatchScores = clearDependentMatchScores(nextMatchScores, nextLevel, nextMatchIndex);
         }
       }
 
       nextWinners[key] = winnerEntrantIndex;
+      nextMatchScores[key] = { left: leftScore, right: rightScore };
 
-      if (parentLevel === 3) {
+      const nextMatchHistory = [
+        ...matchHistory,
+        {
+          id: `${Date.now()}-${key}`,
+          scoreKey: key,
+          title: getMatchTitle(matchLevel),
+          leftPlayerName: leftPlayer.name,
+          rightPlayerName: rightPlayer.name,
+          leftScore,
+          rightScore,
+          winnerName,
+          recordedAt: Date.now(),
+          previousMatchWinners: { ...matchWinners },
+          previousMatchScores: { ...matchScores },
+        },
+      ].slice(-MAX_MATCH_HISTORY);
+
+      if (matchLevel === 3 && previousWinner !== undefined && previousWinner !== winnerEntrantIndex) {
         delete nextWinners[THIRD_PLACE_KEY];
+        delete nextMatchScores[THIRD_PLACE_KEY];
       }
 
       setMatchWinners(nextWinners);
+      setMatchScores(nextMatchScores);
+      setMatchHistory(nextMatchHistory);
 
       if (isFirebaseAvailable && eventRef.current) {
         void update(eventRef.current, {
           matchWinners: nextWinners,
+          matchScores: nextMatchScores,
+          matchHistory: nextMatchHistory,
           updatedAt: serverTimestamp(),
         }).catch((error) => {
           console.error(error);
@@ -793,13 +1012,8 @@ export function useTournamentEvent() {
         });
       }
 
-      if (parentLevel !== 4) {
+      if (matchLevel !== 4) {
         return { kind: 'winner' };
-      }
-
-      const entrants = getBracketEntrants(players, rosterOrder, isRosterFinalized);
-      while (entrants.length < MAX_PLAYERS) {
-        entrants.push(createEmptyBracketEntrant());
       }
 
       const champion = entrants[winnerEntrantIndex];
@@ -809,12 +1023,22 @@ export function useTournamentEvent() {
         championName: champion && !champion.empty ? champion.name : 'Champion',
       };
     },
-    [isFirebaseAvailable, isRosterFinalized, matchWinners, players, rosterOrder],
+    [isFirebaseAvailable, isRosterFinalized, matchHistory, matchScores, matchWinners, players, rosterOrder],
   );
 
-  const selectThirdPlaceWinner = useCallback(
-    (winnerEntrantIndex: number): SelectionResult => {
+  const submitThirdPlaceScore = useCallback(
+    (leftScore: number, rightScore: number): SelectionResult => {
       if (!isRosterFinalized) {
+        return { kind: 'noop' };
+      }
+
+      if (
+        !Number.isInteger(leftScore) ||
+        !Number.isInteger(rightScore) ||
+        leftScore < 0 ||
+        rightScore < 0 ||
+        leftScore === rightScore
+      ) {
         return { kind: 'noop' };
       }
 
@@ -826,11 +1050,18 @@ export function useTournamentEvent() {
       const thirdPlaceEntrants = getThirdPlaceEntrantIndexes(entrants, matchWinners);
       const playoffReady = thirdPlaceEntrants.every((entrantIndex) => entrantIndex !== undefined);
 
-      if (!playoffReady || !thirdPlaceEntrants.includes(winnerEntrantIndex)) {
+      if (!playoffReady || thirdPlaceEntrants[0] === undefined || thirdPlaceEntrants[1] === undefined) {
         return { kind: 'noop' };
       }
 
-      if (matchWinners[THIRD_PLACE_KEY] === winnerEntrantIndex) {
+      const winnerEntrantIndex = leftScore > rightScore ? thirdPlaceEntrants[0] : thirdPlaceEntrants[1];
+      const previousScore = matchScores[THIRD_PLACE_KEY];
+
+      if (
+        matchWinners[THIRD_PLACE_KEY] === winnerEntrantIndex &&
+        previousScore?.left === leftScore &&
+        previousScore?.right === rightScore
+      ) {
         return { kind: 'noop' };
       }
 
@@ -838,12 +1069,36 @@ export function useTournamentEvent() {
         ...matchWinners,
         [THIRD_PLACE_KEY]: winnerEntrantIndex,
       };
+      const nextMatchScores = {
+        ...matchScores,
+        [THIRD_PLACE_KEY]: { left: leftScore, right: rightScore },
+      };
+      const nextMatchHistory = [
+        ...matchHistory,
+        {
+          id: `${Date.now()}-${THIRD_PLACE_KEY}`,
+          scoreKey: THIRD_PLACE_KEY,
+          title: '3rd Place Playoff',
+          leftPlayerName: entrants[thirdPlaceEntrants[0]].name,
+          rightPlayerName: entrants[thirdPlaceEntrants[1]].name,
+          leftScore,
+          rightScore,
+          winnerName: entrants[winnerEntrantIndex].name,
+          recordedAt: Date.now(),
+          previousMatchWinners: { ...matchWinners },
+          previousMatchScores: { ...matchScores },
+        },
+      ].slice(-MAX_MATCH_HISTORY);
 
       setMatchWinners(nextWinners);
+      setMatchScores(nextMatchScores);
+      setMatchHistory(nextMatchHistory);
 
       if (isFirebaseAvailable && eventRef.current) {
         void update(eventRef.current, {
           matchWinners: nextWinners,
+          matchScores: nextMatchScores,
+          matchHistory: nextMatchHistory,
           updatedAt: serverTimestamp(),
         }).catch((error) => {
           console.error(error);
@@ -853,8 +1108,35 @@ export function useTournamentEvent() {
 
       return { kind: 'winner' };
     },
-    [isFirebaseAvailable, isRosterFinalized, matchWinners, players, rosterOrder],
+    [isFirebaseAvailable, isRosterFinalized, matchHistory, matchScores, matchWinners, players, rosterOrder],
   );
+
+  const undoLastMatchResult = useCallback(() => {
+    if (!isRosterFinalized || matchHistory.length === 0) {
+      return false;
+    }
+
+    const previousEntry = matchHistory[matchHistory.length - 1];
+    const nextMatchHistory = matchHistory.slice(0, -1);
+
+    setMatchWinners(previousEntry.previousMatchWinners);
+    setMatchScores(previousEntry.previousMatchScores);
+    setMatchHistory(nextMatchHistory);
+
+    if (isFirebaseAvailable && eventRef.current) {
+      void update(eventRef.current, {
+        matchWinners: previousEntry.previousMatchWinners,
+        matchScores: previousEntry.previousMatchScores,
+        matchHistory: nextMatchHistory,
+        updatedAt: serverTimestamp(),
+      }).catch((error) => {
+        console.error(error);
+        setShareStatus('Failed to undo the last result.');
+      });
+    }
+
+    return true;
+  }, [isFirebaseAvailable, isRosterFinalized, matchHistory]);
 
   const isRosterFull = useMemo(() => players.length >= MAX_PLAYERS, [players.length]);
   const shouldQueueSignup = useMemo(
@@ -874,6 +1156,8 @@ export function useTournamentEvent() {
     rosterOrder,
     isRosterFinalized,
     matchWinners,
+    matchScores,
+    matchHistory,
     isFirebaseAvailable,
     isShufflingRoster,
     isRosterFull,
@@ -887,7 +1171,8 @@ export function useTournamentEvent() {
     deleteParticipant,
     deleteWaitingParticipant,
     resetEvent,
-    selectWinner,
-    selectThirdPlaceWinner,
+    submitMatchScore,
+    submitThirdPlaceScore,
+    undoLastMatchResult,
   };
 }

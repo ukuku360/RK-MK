@@ -1,81 +1,43 @@
-import { startTransition, useEffect, useMemo, useState } from 'react';
-import { ADMIN_PASSWORD, ADMIN_SESSION_KEY, MAX_PLAYERS } from './constants';
+import { startTransition, useEffect, useMemo, useRef, useState } from 'react';
+import { MAX_PLAYERS } from './constants';
 import { BracketPanel } from './components/BracketPanel';
 import { CelebrationLayer } from './components/CelebrationLayer';
 import { EntriesPanel } from './components/EntriesPanel';
 import { EventSummary } from './components/EventSummary';
 import { CapacityGauge } from './components/CapacityGauge';
 import { HeroHeader } from './components/HeroHeader';
+import { MatchScoreModal } from './components/MatchScoreModal';
 import { PageOrnaments } from './components/PageOrnaments';
 import { ProfileCard } from './components/ProfileCard';
 import { RegistrationPanel } from './components/RegistrationPanel';
-import { RoomingKosMotionPreview } from './components/RoomingKosMotionPreview';
 import { useCelebration } from './hooks/useCelebration';
 import { useProfileCard } from './hooks/useProfileCard';
 import { useTournamentEvent } from './hooks/useTournamentEvent';
 import { ClickParticles } from './components/ClickParticles';
 import { AdminGateModal } from './components/AdminGateModal';
 import { PodiumPopup } from './components/PodiumPopup';
-import { getBracketEntrants, getResolvedMatchWinner } from './utils/bracket';
+import {
+  createEmptyBracketEntrant,
+  getBracketEntrants,
+  getMatchParticipantIndexes,
+  getResolvedMatchWinner,
+  getThirdPlaceEntrantIndexes,
+  getWinnerKey,
+} from './utils/bracket';
 import { THIRD_PLACE_KEY } from './constants';
-import type { ViewMode } from './types';
+import type { SelectionResult, ViewMode } from './types';
+import { createResultPosterPng } from './utils/resultShare';
 
-function getRosterStatusText(options: {
-  isShufflingRoster: boolean;
-  isRosterFinalized: boolean;
-  playerCount: number;
-  waitlistCount: number;
-  isFirebaseAvailable: boolean;
-}) {
-  const {
-    isShufflingRoster,
-    isRosterFinalized,
-    playerCount,
-    waitlistCount,
-    isFirebaseAvailable,
-  } = options;
-
-  if (isShufflingRoster) {
-    return 'Drawing roster now. The final matchups will be set shortly.';
-  }
-
-  if (isRosterFinalized) {
-    const emptySlotCount = Math.max(0, MAX_PLAYERS - playerCount);
-
-    if (waitlistCount) {
-      return `Roster is active. ${waitlistCount} player${waitlistCount === 1 ? '' : 's'} ${
-        waitlistCount === 1 ? 'remains' : 'remain'
-      } on the waitlist.`;
-    }
-
-    if (emptySlotCount > 0) {
-      return `Roster is active. ${emptySlotCount} bracket slot${
-        emptySlotCount === 1 ? ' is' : 's are'
-      } empty and will advance by bye. New signups now go to the waitlist.`;
-    }
-
-    return 'Roster is active. New signups now go to the waitlist.';
-  }
-
-  if (playerCount < 2) {
-    return 'At least 2 participants are needed to draw a roster.';
-  }
-
-  if (playerCount < MAX_PLAYERS) {
-    return `${playerCount} of ${MAX_PLAYERS} slots filled. You can draw now or wait for more participants.`;
-  }
-
-  if (waitlistCount) {
-    return `All ${MAX_PLAYERS} slots are filled. ${waitlistCount} player${
-      waitlistCount === 1 ? '' : 's'
-    } ${waitlistCount === 1 ? 'is' : 'are'} waiting for an opening.`;
-  }
-
-  if (!isFirebaseAvailable) {
-    return 'Running in local mode. Configure Firebase to sync this bracket across devices.';
-  }
-
-  return 'All participants are in. New signups now go to the waitlist.';
+interface ScoreDialogState {
+  kind: 'match' | 'third-place';
+  title: string;
+  scoreKey: string;
+  leftPlayerName: string;
+  rightPlayerName: string;
+  clientX?: number;
+  clientY?: number;
+  matchLevel?: number;
+  matchIndex?: number;
 }
 
 export default function App() {
@@ -87,10 +49,14 @@ export default function App() {
   const [isAdminMode, setIsAdminMode] = useState(false);
   const [showAdminGate, setShowAdminGate] = useState(false);
   const [showPodium, setShowPodium] = useState(false);
+  const [resultShareStatus, setResultShareStatus] = useState('');
+  const [isSharingResult, setIsSharingResult] = useState(false);
+  const isSharingResultRef = useRef(false);
   const [isBracketFocus, setIsBracketFocus] = useState(
     () => document.body.classList.contains('bracket-focus'),
   );
   const [stamps, setStamps] = useState<{ id: number; x: number; y: number }[]>([]);
+  const [scoreDialog, setScoreDialog] = useState<ScoreDialogState | null>(null);
 
   const canUseAdminControls = isAdminMode && currentView === 'admin';
   const canUseRosterControls = isAdminMode;
@@ -103,24 +69,6 @@ export default function App() {
     return `Entries: ${tournament.players.length} / ${MAX_PLAYERS}`;
   }, [tournament.isRosterFull, tournament.players.length]);
 
-  const rosterStatus = useMemo(
-    () =>
-      getRosterStatusText({
-        isShufflingRoster: tournament.isShufflingRoster,
-        isRosterFinalized: tournament.isRosterFinalized,
-        playerCount: tournament.players.length,
-        waitlistCount: tournament.waitingPlayers.length,
-        isFirebaseAvailable: tournament.isFirebaseAvailable,
-      }),
-    [
-      tournament.isFirebaseAvailable,
-      tournament.isRosterFinalized,
-      tournament.isShufflingRoster,
-      tournament.players.length,
-      tournament.waitingPlayers.length,
-    ],
-  );
-
   useEffect(() => {
     document.body.classList.toggle('bracket-focus', isBracketFocus);
 
@@ -128,6 +76,16 @@ export default function App() {
       document.body.classList.remove('bracket-focus');
     };
   }, [isBracketFocus]);
+
+  useEffect(() => {
+    if (showPodium) {
+      return;
+    }
+
+    setResultShareStatus('');
+    setIsSharingResult(false);
+    isSharingResultRef.current = false;
+  }, [showPodium]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -180,6 +138,10 @@ export default function App() {
       setIsBracketFocus(false);
     }
 
+    if (nextView !== 'admin') {
+      setScoreDialog(null);
+    }
+
     profileCard.hideProfileCard(true);
     startTransition(() => setCurrentView(nextView));
   }
@@ -193,20 +155,16 @@ export default function App() {
   function handleAdminLogout() {
     setIsAdminMode(false);
     setIsBracketFocus(false);
+    setScoreDialog(null);
     profileCard.hideProfileCard(true);
     startTransition(() => setCurrentView('warriors'));
   }
 
-  function handleSelectWinner(
-    childLevel: number,
-    childMatchIndex: number,
-    winnerEntrantIndex: number,
+  function handleBracketDecisionResult(
+    result: SelectionResult,
     clientX?: number,
     clientY?: number,
   ) {
-    profileCard.hideProfileCard(true);
-    const result = tournament.selectWinner(childLevel, childMatchIndex, winnerEntrantIndex);
-
     if (result.kind === 'champion') {
       celebration.triggerChampionCelebration(result.championName || 'Champion');
       setTimeout(() => {
@@ -233,40 +191,210 @@ export default function App() {
     }
   }
 
-  function handleSelectThirdPlaceWinner(
-    winnerEntrantIndex: number,
+  const entrants = useMemo(() => {
+    const nextEntrants = getBracketEntrants(
+      tournament.players,
+      tournament.rosterOrder,
+      tournament.isRosterFinalized,
+    );
+
+    while (nextEntrants.length < MAX_PLAYERS) {
+      nextEntrants.push(createEmptyBracketEntrant());
+    }
+
+    return nextEntrants;
+  }, [tournament.isRosterFinalized, tournament.players, tournament.rosterOrder]);
+
+  function handleRequestMatchScore(
+    matchLevel: number,
+    matchIndex: number,
     clientX?: number,
     clientY?: number,
   ) {
     profileCard.hideProfileCard(true);
-    const result = tournament.selectThirdPlaceWinner(winnerEntrantIndex);
 
-    if (result.kind === 'winner') {
-      celebration.triggerWinnerConfetti(clientX, clientY);
-      if (clientX !== undefined && clientY !== undefined) {
-        const newId = Date.now();
-        setStamps((s) => [...s, { id: newId, x: clientX, y: clientY }]);
-        setTimeout(() => setStamps((s) => s.filter((stamp) => stamp.id !== newId)), 800);
-        
-        const svgElement = document.getElementById('bracketSvg');
-        if (svgElement) {
-          svgElement.classList.remove('shake-animation');
-          void svgElement.offsetWidth;
-          svgElement.classList.add('shake-animation');
-          setTimeout(() => svgElement.classList.remove('shake-animation'), 300);
-        }
-      }
+    const participantIndexes = getMatchParticipantIndexes(
+      matchLevel,
+      matchIndex,
+      entrants,
+      tournament.matchWinners,
+    );
+
+    if (participantIndexes.length !== 2) {
+      return;
     }
+
+    const [leftIndex, rightIndex] = participantIndexes;
+    const leftPlayer = entrants[leftIndex];
+    const rightPlayer = entrants[rightIndex];
+
+    if (!leftPlayer || !rightPlayer || leftPlayer.empty || rightPlayer.empty) {
+      return;
+    }
+
+    const roundTitle =
+      matchLevel === 1
+        ? 'Round 1'
+        : matchLevel === 2
+          ? 'Quarterfinal'
+          : matchLevel === 3
+            ? 'Semifinal'
+            : 'Final';
+
+    setScoreDialog({
+      kind: 'match',
+      title: `${roundTitle} Match`,
+      scoreKey: getWinnerKey(matchLevel, matchIndex),
+      leftPlayerName: leftPlayer.name,
+      rightPlayerName: rightPlayer.name,
+      clientX,
+      clientY,
+      matchLevel,
+      matchIndex,
+    });
   }
 
-  const entrants = getBracketEntrants(tournament.players, tournament.rosterOrder, tournament.isRosterFinalized);
+  function handleRequestThirdPlaceScore(clientX?: number, clientY?: number) {
+    profileCard.hideProfileCard(true);
+
+    const thirdPlaceEntrants = getThirdPlaceEntrantIndexes(entrants, tournament.matchWinners);
+    const [leftIndex, rightIndex] = thirdPlaceEntrants;
+
+    if (leftIndex === undefined || rightIndex === undefined) {
+      return;
+    }
+
+    const leftPlayer = entrants[leftIndex];
+    const rightPlayer = entrants[rightIndex];
+
+    if (!leftPlayer || !rightPlayer || leftPlayer.empty || rightPlayer.empty) {
+      return;
+    }
+
+    setScoreDialog({
+      kind: 'third-place',
+      title: '3rd Place Playoff',
+      scoreKey: THIRD_PLACE_KEY,
+      leftPlayerName: leftPlayer.name,
+      rightPlayerName: rightPlayer.name,
+      clientX,
+      clientY,
+    });
+  }
+
+  function handleSubmitScore(leftScore: number, rightScore: number) {
+    if (!scoreDialog) {
+      return;
+    }
+
+    const result =
+      scoreDialog.kind === 'match' && scoreDialog.matchLevel !== undefined && scoreDialog.matchIndex !== undefined
+        ? tournament.submitMatchScore(
+            scoreDialog.matchLevel,
+            scoreDialog.matchIndex,
+            leftScore,
+            rightScore,
+          )
+        : tournament.submitThirdPlaceScore(leftScore, rightScore);
+
+    const { clientX, clientY } = scoreDialog;
+    setScoreDialog(null);
+    handleBracketDecisionResult(result, clientX, clientY);
+  }
+
+  function handleUndoLastResult() {
+    profileCard.hideProfileCard(true);
+    setScoreDialog(null);
+    setShowPodium(false);
+    tournament.undoLastMatchResult();
+  }
+
   const leftFinalistIndex = getResolvedMatchWinner(3, 0, entrants, tournament.matchWinners);
   const rightFinalistIndex = getResolvedMatchWinner(3, 1, entrants, tournament.matchWinners);
+  const thirdPlaceEntrants = getThirdPlaceEntrantIndexes(entrants, tournament.matchWinners);
   const secondPlaceIndex = tournament.championIndex === leftFinalistIndex ? rightFinalistIndex : leftFinalistIndex;
+  const thirdPlacePlayoffRequired = thirdPlaceEntrants.every((entrantIndex) => entrantIndex !== undefined);
 
   const firstPlace = tournament.championIndex !== undefined ? entrants[tournament.championIndex] : undefined;
   const secondPlace = secondPlaceIndex !== undefined ? entrants[secondPlaceIndex] : undefined;
   const thirdPlace = tournament.matchWinners[THIRD_PLACE_KEY] !== undefined ? entrants[tournament.matchWinners[THIRD_PLACE_KEY]] : undefined;
+  const resultsReady =
+    tournament.championIndex !== undefined &&
+    (!thirdPlacePlayoffRequired || (thirdPlace !== undefined && !thirdPlace.empty));
+
+  async function handleShareResult() {
+    if (isSharingResultRef.current) {
+      return;
+    }
+
+    isSharingResultRef.current = true;
+    setResultShareStatus('Preparing result image...');
+    setIsSharingResult(true);
+
+    try {
+      const imageBlob = await createResultPosterPng(firstPlace, secondPlace, thirdPlace);
+      const filename = `roomingkos-result-${new Date().toISOString().slice(0, 10)}.png`;
+      const shareFile =
+        typeof File === 'function'
+          ? new File([imageBlob], filename, { type: 'image/png' })
+          : null;
+
+      if (
+        shareFile &&
+        navigator.share &&
+        (!navigator.canShare || navigator.canShare({ files: [shareFile] }))
+      ) {
+        try {
+          await navigator.share({
+            files: [shareFile],
+            title: 'RoomingKos Tournament Result',
+            text: 'Table tennis tournament result poster',
+          });
+          setResultShareStatus('Result image shared.');
+          return;
+        } catch (error) {
+          if (error instanceof Error && error.name === 'AbortError') {
+            setResultShareStatus('');
+            return;
+          }
+        }
+      }
+
+      if (
+        window.isSecureContext &&
+        navigator.clipboard &&
+        'ClipboardItem' in window
+      ) {
+        try {
+          await navigator.clipboard.write([
+            new window.ClipboardItem({
+              'image/png': imageBlob,
+            }),
+          ]);
+          setResultShareStatus('Result image copied to clipboard.');
+          return;
+        } catch (error) {
+          console.error(error);
+        }
+      }
+
+      const downloadUrl = URL.createObjectURL(imageBlob);
+      const downloadLink = document.createElement('a');
+      downloadLink.href = downloadUrl;
+      downloadLink.download = filename;
+      document.body.append(downloadLink);
+      downloadLink.click();
+      downloadLink.remove();
+      window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+      setResultShareStatus('Result image downloaded as PNG.');
+    } catch (error) {
+      console.error(error);
+      setResultShareStatus('Unable to share the result image on this device.');
+    } finally {
+      isSharingResultRef.current = false;
+      setIsSharingResult(false);
+    }
+  }
 
   return (
     <>
@@ -281,6 +409,18 @@ export default function App() {
         firstPlace={firstPlace}
         secondPlace={secondPlace}
         thirdPlace={thirdPlace}
+        onShareResult={handleShareResult}
+        shareStatus={resultShareStatus}
+        isSharingResult={isSharingResult}
+      />
+      <MatchScoreModal
+        visible={Boolean(scoreDialog)}
+        title={scoreDialog?.title || 'Match'}
+        leftPlayerName={scoreDialog?.leftPlayerName || ''}
+        rightPlayerName={scoreDialog?.rightPlayerName || ''}
+        initialScore={scoreDialog ? tournament.matchScores[scoreDialog.scoreKey] : undefined}
+        onClose={() => setScoreDialog(null)}
+        onSubmit={handleSubmitScore}
       />
       <ClickParticles />
       {stamps.map((stamp) => (
@@ -367,39 +507,27 @@ export default function App() {
             <>
               <BracketPanel
                 players={tournament.players}
-              rosterOrder={tournament.rosterOrder}
-              matchWinners={tournament.matchWinners}
-              isRosterFinalized={tournament.isRosterFinalized}
-              isShufflingRoster={tournament.isShufflingRoster}
-              canUseRosterControls={canUseRosterControls}
-              rosterStatus={rosterStatus}
-              isBracketFocus={isBracketFocus}
-              getProfileHandlers={profileCard.getProfileHandlers}
-              onDrawRoster={tournament.drawRoster}
-              onToggleFocus={() => {
-                profileCard.hideProfileCard(true);
-                setIsBracketFocus((current) => !current);
-              }}
-              onSelectWinner={handleSelectWinner}
-              onSelectThirdPlaceWinner={handleSelectThirdPlaceWinner}
-              onScroll={() => profileCard.hideProfileCard(true)}
-            />
-            {tournament.championIndex !== undefined && (
-              <button 
-                type="button" 
-                onClick={() => setShowPodium(true)}
-                style={{
-                  position: 'fixed', bottom: '24px', right: '24px', zIndex: 100,
-                  background: 'var(--brand)', color: '#fff', padding: '12px 24px',
-                  borderRadius: '999px', border: '4px solid var(--black)',
-                  fontSize: '18px',
-                  fontWeight: 900, boxShadow: '6px 6px 0 var(--black)',
-                  cursor: 'pointer', transition: 'transform 0.1s'
+                rosterOrder={tournament.rosterOrder}
+                matchScores={tournament.matchScores}
+                matchWinners={tournament.matchWinners}
+                isRosterFinalized={tournament.isRosterFinalized}
+                isShufflingRoster={tournament.isShufflingRoster}
+                canUseRosterControls={canUseRosterControls}
+                isBracketFocus={isBracketFocus}
+                getProfileHandlers={profileCard.getProfileHandlers}
+                onDrawRoster={tournament.drawRoster}
+                onToggleFocus={() => {
+                  profileCard.hideProfileCard(true);
+                  setIsBracketFocus((current) => !current);
                 }}
-              >
-                🏆 VIEW PODIUM
-              </button>
-            )}
+                canUndoLastResult={canUseRosterControls && tournament.matchHistory.length > 0}
+                onUndoLastResult={handleUndoLastResult}
+                resultsReady={resultsReady}
+                onOpenResults={() => setShowPodium(true)}
+                onRequestMatchScore={handleRequestMatchScore}
+                onRequestThirdPlaceScore={handleRequestThirdPlaceScore}
+                onScroll={() => profileCard.hideProfileCard(true)}
+              />
             </>
           ) : null}
         </div>

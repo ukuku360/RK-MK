@@ -10,9 +10,21 @@ interface PodiumPopupProps {
   firstPlace?: PlayerRecord;
   secondPlace?: PlayerRecord;
   thirdPlace?: PlayerRecord;
+  onShareResult: () => void;
+  shareStatus: string;
+  isSharingResult: boolean;
 }
 
-export function PodiumPopup({ visible, onClose, firstPlace, secondPlace, thirdPlace }: PodiumPopupProps) {
+export function PodiumPopup({
+  visible,
+  onClose,
+  firstPlace,
+  secondPlace,
+  thirdPlace,
+  onShareResult,
+  shareStatus,
+  isSharingResult,
+}: PodiumPopupProps) {
   const [render, setRender] = useState(false);
 
   useEffect(() => {
@@ -94,6 +106,47 @@ export function PodiumPopup({ visible, onClose, firstPlace, secondPlace, thirdPl
           width: 100%;
           height: 420px;
           padding: 0 16px;
+        }
+        .podium-actions {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 12px;
+          margin-top: 28px;
+        }
+        .podium-share {
+          min-width: 220px;
+          padding: 14px 24px;
+          border-radius: 999px;
+          border: 4px solid var(--black);
+          background: #fff;
+          color: var(--black);
+          font-size: 1rem;
+          font-weight: 900;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          cursor: pointer;
+          box-shadow: 4px 4px 0 var(--black);
+          transition: transform 0.12s ease, box-shadow 0.12s ease, background-color 0.12s ease;
+        }
+        .podium-share:hover:not(:disabled) {
+          background: #fff4c7;
+        }
+        .podium-share:active:not(:disabled) {
+          transform: translate(2px, 2px);
+          box-shadow: 2px 2px 0 var(--black);
+        }
+        .podium-share:disabled {
+          cursor: wait;
+          opacity: 0.72;
+        }
+        .podium-share-status {
+          min-height: 24px;
+          margin: 0;
+          font-size: 0.95rem;
+          font-weight: 700;
+          color: var(--black);
+          text-align: center;
         }
         .podium-pillar {
           display: flex;
@@ -285,6 +338,20 @@ export function PodiumPopup({ visible, onClose, firstPlace, secondPlace, thirdPl
               <div className="podium-aura">{thirdPlace && !thirdPlace.empty ? thirdPlace.aura : '-'}</div>
               <div className="podium-block">3</div>
             </div>
+          </div>
+
+          <div className="podium-actions">
+            <button
+              type="button"
+              className="podium-share"
+              onClick={onShareResult}
+              disabled={isSharingResult}
+            >
+              {isSharingResult ? 'Preparing PNG...' : 'Share Result'}
+            </button>
+            <p className="podium-share-status" aria-live="polite">
+              {shareStatus}
+            </p>
           </div>
         </div>
       </div>

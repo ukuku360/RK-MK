@@ -12,12 +12,37 @@ export type RosterEntry = string | PlayerRecord | null;
 
 export type MatchWinners = Record<string, number>;
 
+export interface MatchScore {
+  left: number;
+  right: number;
+}
+
+export type MatchScores = Record<string, MatchScore>;
+
+export interface MatchHistoryEntry {
+  id: string;
+  scoreKey: string;
+  title: string;
+  leftPlayerName: string;
+  rightPlayerName: string;
+  leftScore: number;
+  rightScore: number;
+  winnerName: string;
+  recordedAt: number;
+  previousMatchWinners: MatchWinners;
+  previousMatchScores: MatchScores;
+}
+
+export type MatchHistory = MatchHistoryEntry[];
+
 export interface PersistedEventState {
   players: PlayerRecord[];
   waitingPlayers: PlayerRecord[];
   rosterOrder: RosterEntry[];
   isRosterFinalized: boolean;
   matchWinners: MatchWinners;
+  matchScores: MatchScores;
+  matchHistory: MatchHistory;
   updatedAt: number;
 }
 
