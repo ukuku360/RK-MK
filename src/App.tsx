@@ -4,7 +4,6 @@ import { BracketPanel } from './components/BracketPanel';
 import { CelebrationLayer } from './components/CelebrationLayer';
 import { EntriesPanel } from './components/EntriesPanel';
 import { EventSummary } from './components/EventSummary';
-import { CapacityGauge } from './components/CapacityGauge';
 import { HeroHeader } from './components/HeroHeader';
 import { MatchScoreModal } from './components/MatchScoreModal';
 import { PageOrnaments } from './components/PageOrnaments';
@@ -460,11 +459,6 @@ export default function App() {
           onLogin={() => setShowAdminGate(true)}
           onLogout={handleAdminLogout}
           onReset={tournament.resetEvent}
-        />
-        <CapacityGauge
-          playerCount={tournament.players.length}
-          maxPlayers={MAX_PLAYERS}
-          waitlistCount={tournament.waitingPlayers.length}
         />
 
         <div className={`content${currentView !== 'admin' ? ' content-single' : ''}`}>

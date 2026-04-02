@@ -2,8 +2,6 @@ import type { HTMLAttributes } from 'react';
 import type { ProfileHandlerFactory } from '../hooks/useProfileCard';
 import type { PlayerRecord } from '../types';
 import { makeProfileCardData } from '../utils/profile';
-import { CapacityGauge } from './CapacityGauge';
-import { MAX_PLAYERS } from '../constants';
 
 interface EntriesPanelProps {
   players: PlayerRecord[];
@@ -27,20 +25,9 @@ export function EntriesPanel({
   return (
     <section className="panel user-card entries-panel" aria-labelledby="entriesTitle">
       <h2 id="entriesTitle">Entries</h2>
+      <p className="entries-count">{countText}</p>
 
-      {/* top row: entries badge + compact gauge */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, marginTop: 8 }}>
-        <p className="entries-count" style={{ margin: 0 }}>{countText}</p>
-        <div style={{ width: 260 }} aria-hidden>
-          <CapacityGauge
-            playerCount={players.length}
-            maxPlayers={MAX_PLAYERS}
-            waitlistCount={waitingPlayers.length}
-          />
-        </div>
-      </div>
-
-      <div className="entries-content" style={{ marginTop: 12 }}>
+      <div className="entries-content">
         <div className="entries-scroll-area">
           <ul className="players">
             {players.length === 0 ? (
