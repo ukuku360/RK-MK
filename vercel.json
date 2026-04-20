@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    { "source": "/swanston", "destination": "/" },
+    { "source": "/Dudley", "destination": "/" },
+    { "source": "/spire", "destination": "/" },
+    { "source": "/admin", "destination": "/" }
+  ]
+}

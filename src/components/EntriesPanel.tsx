@@ -1,6 +1,7 @@
 import type { HTMLAttributes } from 'react';
+import { EVENT_PRESET } from '../constants';
 import type { ProfileHandlerFactory } from '../hooks/useProfileCard';
-import type { PlayerRecord } from '../types';
+import type { EventPreset, PlayerRecord } from '../types';
 import { makeProfileCardData } from '../utils/profile';
 
 interface EntriesPanelProps {
@@ -8,8 +9,12 @@ interface EntriesPanelProps {
   waitingPlayers: PlayerRecord[];
   countText: string;
   canDelete: boolean;
+  canToggleCheckIn?: boolean;
+  preset?: EventPreset;
   onDeletePlayer: (index: number) => void;
   onDeleteWaitingPlayer: (index: number) => void;
+  onTogglePlayerCheckIn?: (index: number) => void;
+  onToggleWaitingPlayerCheckIn?: (index: number) => void;
   getProfileHandlers: ProfileHandlerFactory;
 }
 
@@ -18,23 +23,30 @@ export function EntriesPanel({
   waitingPlayers,
   countText,
   canDelete,
+  canToggleCheckIn = false,
+  preset = EVENT_PRESET,
   onDeletePlayer,
   onDeleteWaitingPlayer,
+  onTogglePlayerCheckIn,
+  onToggleWaitingPlayerCheckIn,
   getProfileHandlers,
 }: EntriesPanelProps) {
   return (
     <section className="panel user-card entries-panel" aria-labelledby="entriesTitle">
-      <h2 id="entriesTitle">Entries</h2>
+      <h2 id="entriesTitle">{preset.entryListTitle}</h2>
       <p className="entries-count">{countText}</p>
 
       <div className="entries-content">
         <div className="entries-scroll-area">
           <ul className="players">
             {players.length === 0 ? (
-              <li className="placeholder">No entries yet. Add the first participant.</li>
+              <li className="placeholder">No drivers yet. Claim the first grid slot.</li>
             ) : (
               players.map((player, index) => {
-                const profileData = makeProfileCardData(player, `Entry ${index + 1}`);
+                const profileData = makeProfileCardData(
+                  player,
+                  `${preset.entryMetaLabel} ${index + 1}`,
+                );
                 const profileHandlers = getProfileHandlers(profileData, {
                   enablePin: true,
                   releasePinnedOnHover: true,
@@ -49,17 +61,32 @@ export function EntriesPanel({
                       <span className={`player-name${profileData ? ' has-profile' : ''}`}>
                         {player.name}
                       </span>
-                        {canDelete ? (
-                          <button
-                            type="button"
-                            className="admin-delete"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              onDeletePlayer(index);
-                            }}
-                          >
-                            Delete
-                          </button>
+                      {player.checkedIn ? (
+                        <span className="player-status-pill">Checked In</span>
+                      ) : null}
+                      {canToggleCheckIn ? (
+                        <button
+                          type="button"
+                          className="admin-checkin"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onTogglePlayerCheckIn?.(index);
+                          }}
+                        >
+                          {player.checkedIn ? 'Undo Check-In' : 'Check In'}
+                        </button>
+                      ) : null}
+                      {canDelete ? (
+                        <button
+                          type="button"
+                          className="admin-delete"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onDeletePlayer(index);
+                          }}
+                        >
+                          Delete
+                        </button>
                       ) : null}
                     </div>
                   </li>
@@ -72,13 +99,16 @@ export function EntriesPanel({
             <section className="waitlist-section" aria-labelledby="waitlistCountText">
               <div className="waitlist-head">
                 <p className="entries-count waitlist-count" id="waitlistCountText">
-                  Waitlist: {waitingPlayers.length}
+                  {preset.waitlistLabel}: {waitingPlayers.length}
                 </p>
-                <p className="waitlist-note">Late signups queue here.</p>
+                <p className="waitlist-note">{preset.waitlistNote}</p>
               </div>
               <ul className="players waitlist-players">
                 {waitingPlayers.map((player, index) => {
-                  const profileData = makeProfileCardData(player, `Waitlist ${index + 1}`);
+                  const profileData = makeProfileCardData(
+                    player,
+                    `${preset.waitlistMetaLabel} ${index + 1}`,
+                  );
                   const profileHandlers = getProfileHandlers(profileData, {
                     enablePin: true,
                     releasePinnedOnHover: true,
@@ -93,6 +123,21 @@ export function EntriesPanel({
                         <span className={`player-name${profileData ? ' has-profile' : ''}`}>
                           {player.name}
                         </span>
+                        {player.checkedIn ? (
+                          <span className="player-status-pill">Checked In</span>
+                        ) : null}
+                        {canToggleCheckIn ? (
+                          <button
+                            type="button"
+                            className="admin-checkin"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onToggleWaitingPlayerCheckIn?.(index);
+                            }}
+                          >
+                            {player.checkedIn ? 'Undo Check-In' : 'Check In'}
+                          </button>
+                        ) : null}
                         {canDelete ? (
                           <button
                             type="button"

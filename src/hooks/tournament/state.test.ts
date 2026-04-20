@@ -1,0 +1,72 @@
+import { describe, expect, it } from 'vitest';
+import type { PersistedEventState } from '../../types';
+import { createEmptyStageResults } from '../../utils/bracket';
+import { sanitizePersistedState } from './state';
+
+function createPersistedState(overrides: Partial<PersistedEventState> = {}): PersistedEventState {
+  return {
+    players: [
+      {
+        id: 'driver-1',
+        name: 'Driver 1',
+        nickname: '',
+        teamTag: '',
+        createdAt: 1,
+      },
+    ],
+    waitingPlayers: [],
+    rosterOrder: ['driver-1'],
+    isRosterFinalized: true,
+    stageResults: createEmptyStageResults(),
+    raceHistory: [],
+    registrationStatus: 'locked',
+    lockedAt: 10,
+    updatedAt: 10,
+    ...overrides,
+  };
+}
+
+describe('tournament state helpers', () => {
+  it('normalizes legacy persisted state without match data into empty stage results', () => {
+    const legacyState = {
+      ...createPersistedState(),
+      stageResults: undefined,
+      raceHistory: undefined,
+      matchWinners: {
+        '1-0': 0,
+      },
+      matchScores: {
+        '1-0': {
+          left: 1,
+          right: 0,
+        },
+      },
+    } as unknown as PersistedEventState;
+
+    const sanitized = sanitizePersistedState(legacyState);
+
+    expect(sanitized.stageResults).toEqual(createEmptyStageResults());
+    expect(sanitized.raceHistory).toEqual([]);
+  });
+
+  it('drops saved stage progress when the roster is no longer finalized', () => {
+    const state = createPersistedState({
+      isRosterFinalized: false,
+      stageResults: {
+        ...createEmptyStageResults(),
+        'group-a': [
+          {
+            kind: 'standard',
+            participantIndexes: [0, 1, 2, 3],
+            finishingOrder: [0, 1, 2, 3],
+          },
+        ],
+      },
+    });
+
+    const sanitized = sanitizePersistedState(state);
+
+    expect(sanitized.stageResults).toEqual(createEmptyStageResults());
+    expect(sanitized.raceHistory).toEqual([]);
+  });
+});

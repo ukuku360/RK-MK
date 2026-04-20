@@ -25,17 +25,17 @@ export function ProfileCard({
       aria-hidden={visible ? 'false' : 'true'}
       style={{ left, top }}
     >
-      <p className="player-profile-kicker">Bracket Intel</p>
-      <h3 className="player-profile-name">{data?.name || 'Player'}</h3>
-      <p className="player-profile-meta">{data?.metaLabel || 'Slot 1'}</p>
+      <p className="player-profile-kicker">Driver Intel</p>
+      <h3 className="player-profile-name">{data?.name || 'Driver'}</h3>
+      <p className="player-profile-meta">{data?.metaLabel || 'Grid Slot 1'}</p>
       <div className="player-profile-grid">
-        <div className="player-profile-block aura">
-          <span className="player-profile-label">Aura Skill</span>
-          <p className="player-profile-value">{data?.aura || 'No aura listed yet.'}</p>
+        <div className="player-profile-block nickname">
+          <span className="player-profile-label">Racer Tag</span>
+          <p className="player-profile-value">{data?.nickname || 'No racer tag listed yet.'}</p>
         </div>
         <div className="player-profile-block unit-number">
-          <span className="player-profile-label">Unit Number</span>
-          <p className="player-profile-value">{data?.unitNumber || 'No unit number listed yet.'}</p>
+          <span className="player-profile-label">Crew / Kart Tag</span>
+          <p className="player-profile-value">{data?.teamTag || 'No crew tag listed yet.'}</p>
         </div>
       </div>
     </div>

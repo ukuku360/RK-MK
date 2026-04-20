@@ -1,64 +1,86 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  child,
-  get,
   onValue,
   orderByChild,
-  push,
   query,
   ref,
-  remove,
   serverTimestamp,
-  set,
   update,
-  type DataSnapshot,
   type DatabaseReference,
 } from 'firebase/database';
 import {
-  DEFAULT_EVENT_ID,
-  EVENT_ID_STORAGE_KEY,
-  EVENT_STATE_STORAGE_PREFIX,
+  EVENT_REGISTRATION_ENDPOINT,
   FIREBASE_MAX_RETRIES,
   FIREBASE_RETRY_BASE_DELAY_MS,
   MAX_PLAYERS,
-  THIRD_PLACE_KEY,
 } from '../constants';
-import { getFirebaseDatabase, isFirebaseConfigured } from '../lib/firebase';
+import {
+  hasLocalDevelopmentAdminSession,
+  isLocalDevelopmentMode,
+  LOCAL_DEV_ADMIN_UID,
+} from '../lib/adminAccess';
+import { getFirebaseAuth, getFirebaseDatabase, isFirebaseConfigured } from '../lib/firebase';
 import type {
-  MatchHistory,
-  MatchHistoryEntry,
-  MatchScores,
-  MatchWinners,
+  BrandVariant,
+  EventPreset,
+  EventRegistrationStatus,
   PersistedEventState,
   PlayerRecord,
+  RaceHistory,
   RosterEntry,
   SelectionResult,
+  StageRaceSlot,
+  StageResults,
 } from '../types';
 import {
   buildPromotedParticipantState,
   buildRosterEntryForPlayer,
-  clearDependentMatchScores,
-  clearDependentWinners,
-  computeParticipantRemovalState,
-  createEmptyBracketEntrant,
+  buildTournamentStages,
+  cloneStageResults,
+  createEmptyStageResults,
   findRosterSlotIndexForPlayer,
   getBracketEntrants,
-  getMatchParticipantIndexes,
-  getResolvedMatchWinner,
-  getThirdPlaceEntrantIndexes,
-  getWinnerKey,
-  pruneMatchScoresForSlot,
-  pruneMatchWinnersForSlot,
+  padEntrantsToGrid,
   shuffleList,
 } from '../utils/bracket';
+import {
+  applyParticipantRegistration,
+  getEventRegistrationStatus,
+  normalizeRegistrationInput,
+} from '../utils/registration';
+import { ensureEventDocument, purgeSeededTestDataRemotelyIfNeeded } from './tournament/firebase';
+import {
+  loadPersistedEventState,
+  MAX_RACE_HISTORY,
+  normalizeRaceHistory,
+  normalizeRosterEntry,
+  normalizeStageResults,
+  persistEventState,
+  snapshotToPlayerRecords,
+} from './tournament/state';
 
 interface SubmitPlayerInput {
   name: string;
-  aura: string;
-  unitNumber: string;
+  nickname: string;
+  teamTag: string;
 }
 
-const MAX_MATCH_HISTORY = 24;
+function createLocalDevSeedPlayers() {
+  return Array.from({ length: MAX_PLAYERS }, (_, index) => {
+    const playerNumber = index + 1;
+
+    return {
+      id: `seed-spire-${playerNumber}`,
+      name: `Demo Player ${playerNumber}`,
+      nickname: `Test tag ${playerNumber}`,
+      teamTag: 'Spire',
+      createdAt: Date.now() + index,
+      updatedAt: Date.now() + index,
+      lastUpdatedBy: 'local-dev-seed',
+      checkedIn: false,
+    } satisfies PlayerRecord;
+  });
+}
 
 function copyToClipboard(value: string) {
   if (!navigator.clipboard || !window.isSecureContext) {
@@ -68,333 +90,29 @@ function copyToClipboard(value: string) {
   return navigator.clipboard.writeText(value).then(() => true);
 }
 
-function getOrCreateEventId() {
-  const params = new URLSearchParams(window.location.search);
-  const queryEventId = params.get('event');
-
-  if (queryEventId?.trim()) {
-    return queryEventId.trim();
-  }
-
-  const savedEventId = localStorage.getItem(EVENT_ID_STORAGE_KEY);
-
-  if (savedEventId && savedEventId !== DEFAULT_EVENT_ID) {
-    localStorage.removeItem(`${EVENT_STATE_STORAGE_PREFIX}${savedEventId}`);
-  }
-
-  localStorage.setItem(EVENT_ID_STORAGE_KEY, DEFAULT_EVENT_ID);
-  return DEFAULT_EVENT_ID;
-}
-
-function normalizeEventUrl(eventId: string) {
-  const nextUrl = new URL(window.location.href);
-
-  if (!nextUrl.searchParams.get('event') || nextUrl.searchParams.get('event') !== eventId) {
-    nextUrl.searchParams.set('event', eventId);
-    window.history.replaceState({}, '', nextUrl);
-  }
-
-  return nextUrl.toString();
-}
-
-function normalizeText(value: unknown) {
-  return typeof value === 'string' ? value : '';
-}
-
-function normalizePlayerRecord(player: Partial<PlayerRecord> | null | undefined): PlayerRecord {
-  const normalized: PlayerRecord = {
-    name: normalizeText(player?.name),
-    aura: normalizeText(player?.aura),
-    unitNumber: normalizeText(player?.unitNumber),
-  };
-
-  if (typeof player?.id === 'string' && player.id) {
-    normalized.id = player.id;
-  }
-
-  if (player?.createdAt !== undefined) {
-    normalized.createdAt = player.createdAt;
-  }
-
-  if (player?.empty) {
-    normalized.empty = true;
-  }
-
-  if (player?.isBye) {
-    normalized.isBye = true;
-  }
-
-  return normalized;
-}
-
-function normalizeRosterEntry(entry: RosterEntry | null | undefined): RosterEntry {
-  if (!entry || typeof entry === 'string') {
-    return entry ?? null;
-  }
-
-  return normalizePlayerRecord(entry);
-}
-
-function snapshotToPlayerRecords(snapshot: DataSnapshot | null) {
-  const records: PlayerRecord[] = [];
-
-  if (!snapshot?.exists()) {
-    return records;
-  }
-
-  snapshot.forEach((docItem) => {
-    records.push(
-      normalizePlayerRecord({
-        id: docItem.key ?? undefined,
-        ...(docItem.val() as Omit<PlayerRecord, 'id'>),
-      }),
-    );
-  });
-
-  return records;
-}
-
-function getSnapshotChildCount(snapshot: DataSnapshot | null) {
-  if (!snapshot?.exists()) {
-    return 0;
-  }
-
-  if (typeof snapshot.size === 'number') {
-    return snapshot.size;
-  }
-
-  let childCount = 0;
-  snapshot.forEach(() => {
-    childCount += 1;
-  });
-
-  return childCount;
-}
-
-function isSeededTestPlayer(player: PlayerRecord | null | undefined) {
-  if (!player) {
+function isSameFinishingOrder(
+  left: number[] | undefined,
+  right: number[],
+) {
+  if (!left || left.length !== right.length) {
     return false;
   }
 
-  const name = player.name || '';
-  const aura = player.aura || '';
-
-  return (
-    (/^Test Player \d+$/.test(name) && aura === 'Test aura') ||
-    /^Demo Player \d+$/.test(name)
-  );
+  return left.every((value, index) => value === right[index]);
 }
 
-function normalizeMatchScores(matchScores: MatchScores | null | undefined): MatchScores {
-  if (!matchScores || typeof matchScores !== 'object') {
-    return {};
-  }
-
-  const nextMatchScores: MatchScores = {};
-
-  Object.entries(matchScores).forEach(([key, value]) => {
-    const left =
-      typeof value?.left === 'number' && Number.isInteger(value.left) && value.left >= 0
-        ? value.left
-        : undefined;
-    const right =
-      typeof value?.right === 'number' && Number.isInteger(value.right) && value.right >= 0
-        ? value.right
-        : undefined;
-
-    if (left === undefined || right === undefined || left === right) {
-      return;
-    }
-
-    nextMatchScores[key] = { left, right };
-  });
-
-  return nextMatchScores;
-}
-
-function normalizeMatchHistory(matchHistory: MatchHistory | null | undefined): MatchHistory {
-  if (!Array.isArray(matchHistory)) {
-    return [];
-  }
-
-  return matchHistory
-    .map((entry) => {
-      if (!entry || typeof entry !== 'object') {
-        return null;
-      }
-
-      const leftScore =
-        typeof entry.leftScore === 'number' && Number.isInteger(entry.leftScore) && entry.leftScore >= 0
-          ? entry.leftScore
-          : undefined;
-      const rightScore =
-        typeof entry.rightScore === 'number' && Number.isInteger(entry.rightScore) && entry.rightScore >= 0
-          ? entry.rightScore
-          : undefined;
-
-      if (
-        !entry.id ||
-        !entry.scoreKey ||
-        !entry.title ||
-        !entry.leftPlayerName ||
-        !entry.rightPlayerName ||
-        !entry.winnerName ||
-        leftScore === undefined ||
-        rightScore === undefined ||
-        leftScore === rightScore
-      ) {
-        return null;
-      }
-
-      return {
-        id: String(entry.id),
-        scoreKey: String(entry.scoreKey),
-        title: String(entry.title),
-        leftPlayerName: String(entry.leftPlayerName),
-        rightPlayerName: String(entry.rightPlayerName),
-        leftScore,
-        rightScore,
-        winnerName: String(entry.winnerName),
-        recordedAt:
-          typeof entry.recordedAt === 'number' && Number.isFinite(entry.recordedAt)
-            ? entry.recordedAt
-            : Date.now(),
-        previousMatchWinners:
-          entry.previousMatchWinners && typeof entry.previousMatchWinners === 'object'
-            ? entry.previousMatchWinners
-            : {},
-        previousMatchScores: normalizeMatchScores(entry.previousMatchScores),
-      } satisfies MatchHistoryEntry;
-    })
-    .filter((entry): entry is MatchHistoryEntry => entry !== null)
-    .slice(-MAX_MATCH_HISTORY);
-}
-
-function getMatchTitle(matchLevel: number) {
-  if (matchLevel === 1) {
-    return 'Round 1';
-  }
-
-  if (matchLevel === 2) {
-    return 'Quarterfinal';
-  }
-
-  if (matchLevel === 3) {
-    return 'Semifinal';
-  }
-
-  if (matchLevel === 4) {
-    return 'Final';
-  }
-
-  return 'Match';
-}
-
-function sanitizePersistedState(state: PersistedEventState): PersistedEventState {
-  const nextPlayers = state.players
-    .map((player) => normalizePlayerRecord(player))
-    .filter((player) => !isSeededTestPlayer(player));
-  const nextWaitingPlayers = state.waitingPlayers
-    .map((player) => normalizePlayerRecord(player))
-    .filter((player) => !isSeededTestPlayer(player));
-  const nextRosterOrder = state.rosterOrder.map((entry) => normalizeRosterEntry(entry));
-  const nextMatchScores = normalizeMatchScores(state.matchScores);
-  const nextMatchHistory = normalizeMatchHistory(state.matchHistory);
-
-  if (
-    nextPlayers.length === state.players.length &&
-    nextWaitingPlayers.length === state.waitingPlayers.length &&
-    nextRosterOrder.length === state.rosterOrder.length
-  ) {
-    return {
-      ...state,
-      players: nextPlayers,
-      waitingPlayers: nextWaitingPlayers,
-      rosterOrder: nextRosterOrder,
-      matchScores: nextMatchScores,
-      matchHistory: nextMatchHistory,
-    };
-  }
-
-  return {
-    ...state,
-    players: nextPlayers,
-    waitingPlayers: nextWaitingPlayers,
-    rosterOrder: nextRosterOrder,
-    isRosterFinalized: false,
-    matchWinners: {},
-    matchScores: {},
-    matchHistory: [],
-  };
-}
-
-function shouldQueueNewSignup(isRosterFinalized: boolean, playerCount: number) {
-  return isRosterFinalized || playerCount >= MAX_PLAYERS;
-}
-
-async function ensureEventDocument(eventRef: DatabaseReference) {
-  const snapshot = await get(eventRef);
-
-  if (snapshot.exists()) {
-    return;
-  }
-
-  await set(eventRef, {
-    title: 'Swanston Table Tennis Tournament',
-    maxPlayers: MAX_PLAYERS,
-    isRosterFinalized: false,
-    rosterOrder: [],
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
-}
-
-async function purgeSeededTestDataRemotelyIfNeeded(
-  eventRef: DatabaseReference,
-  participantsRef: DatabaseReference,
-  waitlistRef: DatabaseReference,
+export function useTournamentEvent(
+  eventId: string,
+  preset: EventPreset,
+  brandVariant: BrandVariant = 'roomingkos',
 ) {
-  const [participantsSnapshot, waitlistSnapshot] = await Promise.all([
-    get(participantsRef),
-    get(waitlistRef),
-  ]);
-
-  const participantRecords = snapshotToPlayerRecords(participantsSnapshot);
-  const waitlistRecords = snapshotToPlayerRecords(waitlistSnapshot);
-  const hasLegacyData = participantRecords.length > 0 || waitlistRecords.length > 0;
-
-  if (!hasLegacyData) {
-    return;
-  }
-
-  const participantsAreSeededOnly = participantRecords.every((player) => isSeededTestPlayer(player));
-  const waitlistAreSeededOnly = waitlistRecords.every((player) => isSeededTestPlayer(player));
-
-  if (!participantsAreSeededOnly || !waitlistAreSeededOnly) {
-    return;
-  }
-
-  await update(eventRef, {
-    participants: null,
-    waitlist: null,
-    rosterOrder: null,
-    isRosterFinalized: false,
-    matchWinners: null,
-    matchScores: null,
-    matchHistory: null,
-    updatedAt: serverTimestamp(),
-  });
-}
-
-export function useTournamentEvent() {
-  const [eventId] = useState(getOrCreateEventId);
   const [players, setPlayers] = useState<PlayerRecord[]>([]);
   const [waitingPlayers, setWaitingPlayers] = useState<PlayerRecord[]>([]);
   const [rosterOrder, setRosterOrder] = useState<RosterEntry[]>([]);
   const [isRosterFinalized, setIsRosterFinalized] = useState(false);
-  const [matchWinners, setMatchWinners] = useState<MatchWinners>({});
-  const [matchScores, setMatchScores] = useState<MatchScores>({});
-  const [matchHistory, setMatchHistory] = useState<MatchHistory>([]);
+  const [lockedAt, setLockedAt] = useState<number | null>(null);
+  const [stageResults, setStageResults] = useState<StageResults>(createEmptyStageResults());
+  const [raceHistory, setRaceHistory] = useState<RaceHistory>([]);
   const [isFirebaseAvailable, setIsFirebaseAvailable] = useState(true);
   const [shareStatus, setShareStatus] = useState('');
   const [isShufflingRoster, setIsShufflingRoster] = useState(false);
@@ -406,36 +124,46 @@ export function useTournamentEvent() {
   const retryTimeoutRef = useRef<number | null>(null);
   const shuffleTimeoutRef = useRef<number | null>(null);
   const firebaseRetryCountRef = useRef(0);
+  const registrationStatus = useMemo<EventRegistrationStatus>(
+    () => getEventRegistrationStatus(players.length, MAX_PLAYERS, isRosterFinalized),
+    [isRosterFinalized, players.length],
+  );
+  const getCurrentActorId = useCallback(() => {
+    if (hasLocalDevelopmentAdminSession()) {
+      return LOCAL_DEV_ADMIN_UID;
+    }
+
+    if (!isFirebaseConfigured()) {
+      return 'race-control';
+    }
+
+    return getFirebaseAuth().currentUser?.uid ?? 'race-control';
+  }, []);
 
   useEffect(() => {
-    normalizeEventUrl(eventId);
+    didRestoreLocalState.current = false;
+    const state = loadPersistedEventState(eventId);
 
-    const rawState = localStorage.getItem(`${EVENT_STATE_STORAGE_PREFIX}${eventId}`);
-    if (!rawState) {
+    if (!state) {
+      setPlayers([]);
+      setWaitingPlayers([]);
+      setRosterOrder([]);
+      setIsRosterFinalized(false);
+      setLockedAt(null);
+      setStageResults(createEmptyStageResults());
+      setRaceHistory([]);
       didRestoreLocalState.current = true;
       return;
     }
 
-    try {
-      const parsedState = JSON.parse(rawState) as PersistedEventState;
-      const state = sanitizePersistedState(parsedState);
-
-      setPlayers(Array.isArray(state.players) ? state.players : []);
-      setWaitingPlayers(Array.isArray(state.waitingPlayers) ? state.waitingPlayers : []);
-      setRosterOrder(Array.isArray(state.rosterOrder) ? state.rosterOrder : []);
-      setIsRosterFinalized(Boolean(state.isRosterFinalized));
-      setMatchWinners(
-        state.matchWinners && typeof state.matchWinners === 'object'
-          ? state.matchWinners
-          : {},
-      );
-      setMatchScores(normalizeMatchScores(state.matchScores));
-      setMatchHistory(normalizeMatchHistory(state.matchHistory));
-    } catch (error) {
-      console.error(error);
-    } finally {
-      didRestoreLocalState.current = true;
-    }
+    setPlayers(Array.isArray(state.players) ? state.players : []);
+    setWaitingPlayers(Array.isArray(state.waitingPlayers) ? state.waitingPlayers : []);
+    setRosterOrder(Array.isArray(state.rosterOrder) ? state.rosterOrder : []);
+    setIsRosterFinalized(Boolean(state.isRosterFinalized));
+    setLockedAt(typeof state.lockedAt === 'number' ? state.lockedAt : null);
+    setStageResults(normalizeStageResults(state.stageResults));
+    setRaceHistory(normalizeRaceHistory(state.raceHistory));
+    didRestoreLocalState.current = true;
   }, [eventId]);
 
   useEffect(() => {
@@ -448,22 +176,52 @@ export function useTournamentEvent() {
       waitingPlayers,
       rosterOrder,
       isRosterFinalized,
-      matchWinners,
-      matchScores,
-      matchHistory,
+      stageResults,
+      raceHistory,
+      registrationStatus,
+      lockedAt,
       updatedAt: Date.now(),
     };
 
-    localStorage.setItem(
-      `${EVENT_STATE_STORAGE_PREFIX}${eventId}`,
-      JSON.stringify(persistedState),
-    );
-  }, [eventId, isRosterFinalized, matchHistory, matchScores, matchWinners, players, rosterOrder, waitingPlayers]);
+    persistEventState(eventId, persistedState);
+  }, [
+    eventId,
+    isRosterFinalized,
+    lockedAt,
+    players,
+    raceHistory,
+    registrationStatus,
+    rosterOrder,
+    stageResults,
+    waitingPlayers,
+  ]);
+
+  useEffect(() => {
+    if (!isLocalDevelopmentMode()) {
+      return;
+    }
+
+    if (brandVariant !== 'spire') {
+      return;
+    }
+
+    if (!didRestoreLocalState.current || isRosterFinalized || players.length > 0 || waitingPlayers.length > 0) {
+      return;
+    }
+
+    setPlayers(createLocalDevSeedPlayers());
+    setWaitingPlayers([]);
+    setShareStatus('Local Spire preview seeded with 16 demo drivers.');
+  }, [brandVariant, eventId, isRosterFinalized, players.length, waitingPlayers.length]);
 
   useEffect(() => {
     if (!isFirebaseConfigured()) {
       setIsFirebaseAvailable(false);
-      setShareStatus('Firebase is not configured. Running in local-only mode.');
+      setShareStatus(
+        isLocalDevelopmentMode()
+          ? 'Local development mode enabled. Registrations and admin changes stay in this browser.'
+          : 'Firebase is not configured. Running in local-only mode.',
+      );
       return;
     }
 
@@ -481,7 +239,7 @@ export function useTournamentEvent() {
           return;
         }
 
-        await ensureEventDocument(eventRef.current);
+        await ensureEventDocument(eventRef.current, preset.title);
         await purgeSeededTestDataRemotelyIfNeeded(
           eventRef.current,
           participantsRef.current,
@@ -493,7 +251,7 @@ export function useTournamentEvent() {
         }
 
         setIsFirebaseAvailable(true);
-        setShareStatus('Live sync enabled. Share this page to collect registrations.');
+        setShareStatus('Live sync enabled. Share this page to collect driver registrations.');
         firebaseRetryCountRef.current = 0;
 
         unsubscribers.push(
@@ -525,7 +283,7 @@ export function useTournamentEvent() {
             },
             (error) => {
               console.error('[RK Events] Waitlist listener error:', error);
-              setShareStatus('Realtime waitlist sync error. Refreshing list from local input.');
+              setShareStatus('Realtime pit lane sync error. Refreshing from local input.');
             },
           ),
         );
@@ -541,9 +299,9 @@ export function useTournamentEvent() {
               const data = snapshot.val() as {
                 rosterOrder?: RosterEntry[];
                 isRosterFinalized?: boolean;
-                matchWinners?: MatchWinners;
-                matchScores?: MatchScores;
-                matchHistory?: MatchHistory;
+                lockedAt?: number | null;
+                stageResults?: unknown;
+                raceHistory?: unknown;
               };
 
               setRosterOrder(
@@ -552,17 +310,13 @@ export function useTournamentEvent() {
                   : [],
               );
               setIsRosterFinalized(Boolean(data?.isRosterFinalized));
-              setMatchWinners(
-                data?.matchWinners && typeof data.matchWinners === 'object'
-                  ? data.matchWinners
-                  : {},
-              );
-              setMatchScores(normalizeMatchScores(data?.matchScores));
-              setMatchHistory(normalizeMatchHistory(data?.matchHistory));
+              setLockedAt(typeof data?.lockedAt === 'number' ? data.lockedAt : null);
+              setStageResults(normalizeStageResults(data?.stageResults));
+              setRaceHistory(normalizeRaceHistory(data?.raceHistory));
             },
             (error) => {
               console.error('[RK Events] Event listener error:', error);
-              setShareStatus('Failed to sync bracket state.');
+              setShareStatus('Failed to sync stage state.');
             },
           ),
         );
@@ -599,7 +353,7 @@ export function useTournamentEvent() {
         window.clearTimeout(retryTimeoutRef.current);
       }
     };
-  }, [eventId]);
+  }, [eventId, preset.title]);
 
   useEffect(() => {
     return () => {
@@ -609,72 +363,121 @@ export function useTournamentEvent() {
     };
   }, []);
 
+  const orderedEntrants = useMemo(
+    () => padEntrantsToGrid(getBracketEntrants(players, rosterOrder, isRosterFinalized)),
+    [isRosterFinalized, players, rosterOrder],
+  );
+
+  const {
+    groupStages,
+    finalStage,
+    podium: podiumIndexes,
+    completedStandardRaceCount,
+    totalStandardRaceCount,
+    completedTieBreakCount,
+  } = useMemo(
+    () => buildTournamentStages(orderedEntrants, stageResults, isRosterFinalized),
+    [isRosterFinalized, orderedEntrants, stageResults],
+  );
+
+  const podium = useMemo(
+    () =>
+      podiumIndexes.map((entrantIndex) =>
+        entrantIndex !== undefined ? orderedEntrants[entrantIndex] : undefined,
+      ),
+    [orderedEntrants, podiumIndexes],
+  );
+  const resultsReady = useMemo(
+    () => finalStage.isFinalized && podium[0] !== undefined,
+    [finalStage.isFinalized, podium],
+  );
+  const currentChampionName = podium[0]?.empty ? undefined : podium[0]?.name;
+
   const submitParticipant = useCallback(
-    async ({ name, aura, unitNumber }: SubmitPlayerInput) => {
+    async ({ name, nickname, teamTag }: SubmitPlayerInput) => {
       if (isShufflingRoster) {
         return false;
       }
 
-      const player = {
-        name: name.trim(),
-        aura: aura.trim(),
-        unitNumber: unitNumber.trim(),
-      };
+      const player = normalizeRegistrationInput({
+        name,
+        nickname,
+        teamTag,
+      });
 
-      if (!player.name || !player.aura || !player.unitNumber) {
+      if (!player.name) {
         return false;
       }
 
-      const shouldQueue = shouldQueueNewSignup(isRosterFinalized, players.length);
+      if (!isFirebaseAvailable || !eventRef.current) {
+        const localResult = applyParticipantRegistration({
+          players,
+          waitingPlayers,
+          input: player,
+          maxPlayers: MAX_PLAYERS,
+          isRosterFinalized,
+          createId: () => `local-${Date.now()}`,
+          timestamp: Date.now(),
+          updatedBy: 'local-mode',
+        });
 
-      if (!isFirebaseAvailable || !participantsRef.current) {
-        if (shouldQueue) {
-          setWaitingPlayers((current) => [...current, player]);
-        } else {
-          setPlayers((current) => [...current, player]);
+        if (localResult.outcome === 'duplicate') {
+          setShareStatus('This driver is already registered.');
+          return false;
         }
 
+        if (localResult.outcome === 'locked') {
+          setShareStatus('Registrations are locked for this event.');
+          return false;
+        }
+
+        setPlayers(localResult.players);
+        setWaitingPlayers(localResult.waitingPlayers);
+        setShareStatus(
+          localResult.outcome === 'waitlist'
+            ? 'Grid full. Driver added to Pit Lane.'
+            : 'Driver added to the grid.',
+        );
         return true;
-      }
-
-      let addToWaitlist = shouldQueue;
-
-      if (!addToWaitlist) {
-        try {
-          const snapshot = await get(participantsRef.current);
-          addToWaitlist = getSnapshotChildCount(snapshot) >= MAX_PLAYERS;
-        } catch (error) {
-          console.error('[RK Events] Failed to inspect participant count before signup:', error);
-          addToWaitlist = players.length >= MAX_PLAYERS;
-        }
-      }
-
-      const targetRef = addToWaitlist ? waitlistRef.current : participantsRef.current;
-
-      if (!targetRef) {
-        return false;
       }
 
       try {
-        await set(push(targetRef), {
-          ...player,
-          createdAt: serverTimestamp(),
+        const response = await fetch(EVENT_REGISTRATION_ENDPOINT, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            eventId,
+            ...player,
+          }),
         });
+        const payload = (await response.json().catch(() => ({}))) as {
+          error?: string;
+          message?: string;
+        };
+
+        if (!response.ok) {
+          setShareStatus(payload.error || 'Unable to save driver right now.');
+          return false;
+        }
+
+        setShareStatus(payload.message || 'Driver added to the grid.');
         return true;
       } catch (error) {
         console.error(error);
-        setShareStatus('Unable to save participant. Please verify your Firebase permissions.');
+        setShareStatus('Unable to save driver right now.');
         return false;
       }
     },
-    [isFirebaseAvailable, isRosterFinalized, isShufflingRoster, players.length],
+    [eventId, isFirebaseAvailable, isRosterFinalized, isShufflingRoster, players, waitingPlayers],
   );
 
   const shareEvent = useCallback(async () => {
-    const eventUrl = normalizeEventUrl(eventId);
+    const eventUrl = window.location.href;
     const shareData = {
-      title: 'Swanston Table Tennis Tournament',
-      text: 'Reserve your spot for the 16-player knockout bracket at RoomingKos Swanston.',
+      title: preset.title,
+      text: preset.shareText,
       url: eventUrl,
     };
 
@@ -705,7 +508,7 @@ export function useTournamentEvent() {
         setShareStatus('Unable to share automatically. Copy the URL from your browser bar.');
       }
     }
-  }, [eventId]);
+  }, [preset.shareText, preset.title]);
 
   const drawRoster = useCallback(() => {
     if (isShufflingRoster || players.length < 2) {
@@ -718,31 +521,35 @@ export function useTournamentEvent() {
 
     setIsShufflingRoster(true);
     const finalizedIds = shuffleList(players).map((player) => player.id || player);
+    const actorId = getCurrentActorId();
 
     shuffleTimeoutRef.current = window.setTimeout(() => {
+      const nextStageResults = createEmptyStageResults();
       setRosterOrder(finalizedIds);
       setIsRosterFinalized(true);
-      setMatchWinners({});
-      setMatchScores({});
-      setMatchHistory([]);
+      setLockedAt(Date.now());
+      setStageResults(nextStageResults);
+      setRaceHistory([]);
       setIsShufflingRoster(false);
 
       if (isFirebaseAvailable && eventRef.current) {
         void update(eventRef.current, {
           isRosterFinalized: true,
           rosterOrder: finalizedIds,
-          matchWinners: {},
-          matchScores: {},
-          matchHistory: [],
+          registrationStatus: 'locked',
+          lockedAt: serverTimestamp(),
+          stageResults: nextStageResults,
+          raceHistory: [],
           maxPlayers: MAX_PLAYERS,
+          lastUpdatedBy: actorId,
           updatedAt: serverTimestamp(),
         }).catch((error) => {
           console.error(error);
-          setShareStatus('Failed to lock roster. Please try again.');
+          setShareStatus('Failed to lock the draw. Please try again.');
         });
       }
     }, 1600);
-  }, [isFirebaseAvailable, isShufflingRoster, players]);
+  }, [getCurrentActorId, isFirebaseAvailable, isShufflingRoster, players]);
 
   const deleteParticipant = useCallback(
     async (index: number) => {
@@ -750,35 +557,49 @@ export function useTournamentEvent() {
         return;
       }
 
+      const actorId = getCurrentActorId();
       const player = players[index];
       const waitingPlayer = waitingPlayers[0] || null;
-      const bracketSlotIndex =
-        isRosterFinalized && rosterOrder.length
-          ? findRosterSlotIndexForPlayer(player, rosterOrder)
-          : -1;
-      const shouldClearMatchHistory = bracketSlotIndex !== -1;
+      const promotedPlayer =
+        waitingPlayer && waitingPlayer.id
+          ? buildPromotedParticipantState(waitingPlayer, player, waitingPlayer.id)
+          : buildPromotedParticipantState(waitingPlayer, player);
+      const nextPlayers = [...players];
+      const nextWaitingPlayers = [...waitingPlayers];
+      const nextRosterOrder = [...rosterOrder];
+      let shouldResetStages = false;
+
+      nextPlayers.splice(index, 1);
+
+      if (promotedPlayer) {
+        nextPlayers.splice(Math.min(index, nextPlayers.length), 0, promotedPlayer);
+      }
+
+      if (waitingPlayer) {
+        nextWaitingPlayers.shift();
+      }
+
+      if (isRosterFinalized && rosterOrder.length) {
+        const slotIndex = findRosterSlotIndexForPlayer(player, rosterOrder);
+
+        if (slotIndex !== -1) {
+          nextRosterOrder[slotIndex] = promotedPlayer
+            ? buildRosterEntryForPlayer(promotedPlayer, nextRosterOrder)
+            : null;
+          shouldResetStages = true;
+        }
+      }
+
+      const nextStageResults = shouldResetStages ? createEmptyStageResults() : stageResults;
+      const nextRaceHistory = shouldResetStages ? [] : raceHistory;
 
       if (!isFirebaseAvailable || !participantsRef.current || !eventRef.current || !player.id) {
-        const promotedPlayer = buildPromotedParticipantState(waitingPlayer, player);
-        const nextState = computeParticipantRemovalState({
-          players,
-          waitingPlayers,
-          rosterOrder,
-          isRosterFinalized,
-          matchWinners,
-          matchScores,
-          removedPlayer: player,
-          replacementPlayer: promotedPlayer,
-          preferredIndex: index,
-        });
-
-        setPlayers(nextState.players);
-        setWaitingPlayers(nextState.waitingPlayers);
-        setRosterOrder(nextState.rosterOrder);
-        setMatchWinners(nextState.matchWinners);
-        setMatchScores(nextState.matchScores);
-        if (shouldClearMatchHistory) {
-          setMatchHistory([]);
+        setPlayers(nextPlayers);
+        setWaitingPlayers(nextWaitingPlayers);
+        setRosterOrder(nextRosterOrder);
+        if (shouldResetStages) {
+          setStageResults(createEmptyStageResults());
+          setRaceHistory([]);
         }
         return;
       }
@@ -786,65 +607,55 @@ export function useTournamentEvent() {
       try {
         const updates: Record<string, unknown> = {
           [`participants/${player.id}`]: null,
+          registrationStatus: getEventRegistrationStatus(
+            nextPlayers.length,
+            MAX_PLAYERS,
+            isRosterFinalized,
+          ),
+          lastUpdatedBy: actorId,
           updatedAt: serverTimestamp(),
         };
 
-        let promotedPlayer: PlayerRecord | null = null;
-
-        if (waitingPlayer?.id) {
-          promotedPlayer = buildPromotedParticipantState(waitingPlayer, player, waitingPlayer.id);
-
-          if (promotedPlayer) {
-            const { id: promotedId, ...payload } = promotedPlayer;
-            updates[`participants/${promotedId}`] = payload;
-            updates[`waitlist/${waitingPlayer.id}`] = null;
-          }
+        if (promotedPlayer?.id && waitingPlayer?.id) {
+          const { id: promotedId, ...payload } = promotedPlayer;
+          updates[`participants/${promotedId}`] = {
+            ...payload,
+            updatedAt: serverTimestamp(),
+            lastUpdatedBy: actorId,
+          };
+          updates[`waitlist/${waitingPlayer.id}`] = null;
         }
 
-        if (isRosterFinalized && rosterOrder.length) {
-          const slotIndex = bracketSlotIndex;
-
-          if (slotIndex !== -1) {
-            const nextOrder = [...rosterOrder];
-            nextOrder[slotIndex] = promotedPlayer
-              ? buildRosterEntryForPlayer(promotedPlayer, nextOrder)
-              : null;
-
-            updates.rosterOrder = nextOrder;
-            updates.matchWinners = pruneMatchWinnersForSlot(slotIndex, matchWinners);
-            updates.matchScores = pruneMatchScoresForSlot(slotIndex, matchScores);
-            updates.matchHistory = [];
-          }
+        if (shouldResetStages) {
+          updates.rosterOrder = nextRosterOrder;
+          updates.stageResults = nextStageResults;
+          updates.raceHistory = nextRaceHistory;
         }
 
         await update(eventRef.current, updates);
 
-        const nextState = computeParticipantRemovalState({
-          players,
-          waitingPlayers,
-          rosterOrder,
-          isRosterFinalized,
-          matchWinners,
-          matchScores,
-          removedPlayer: player,
-          replacementPlayer: promotedPlayer,
-          preferredIndex: index,
-        });
-
-        setPlayers(nextState.players);
-        setWaitingPlayers(nextState.waitingPlayers);
-        setRosterOrder(nextState.rosterOrder);
-        setMatchWinners(nextState.matchWinners);
-        setMatchScores(nextState.matchScores);
-        if (shouldClearMatchHistory) {
-          setMatchHistory([]);
+        setPlayers(nextPlayers);
+        setWaitingPlayers(nextWaitingPlayers);
+        setRosterOrder(nextRosterOrder);
+        if (shouldResetStages) {
+          setStageResults(createEmptyStageResults());
+          setRaceHistory([]);
         }
       } catch (error) {
         console.error(error);
-        setShareStatus('Unable to delete participant. Please verify your Firebase permissions.');
+        setShareStatus('Unable to delete driver. Please verify your Firebase permissions.');
       }
     },
-    [isFirebaseAvailable, isRosterFinalized, matchScores, matchWinners, players, rosterOrder, waitingPlayers],
+    [
+      getCurrentActorId,
+      isFirebaseAvailable,
+      isRosterFinalized,
+      players,
+      raceHistory,
+      rosterOrder,
+      stageResults,
+      waitingPlayers,
+    ],
   );
 
   const deleteWaitingParticipant = useCallback(
@@ -853,29 +664,80 @@ export function useTournamentEvent() {
         return;
       }
 
+      const actorId = getCurrentActorId();
       const player = waitingPlayers[index];
 
-      if (!isFirebaseAvailable || !waitlistRef.current || !player.id) {
+      if (!isFirebaseAvailable || !waitlistRef.current || !eventRef.current || !player.id) {
         setWaitingPlayers((current) => current.filter((_, currentIndex) => currentIndex !== index));
         return;
       }
 
       try {
-        await remove(child(waitlistRef.current, player.id));
+        await update(eventRef.current, {
+          [`waitlist/${player.id}`]: null,
+          lastUpdatedBy: actorId,
+          updatedAt: serverTimestamp(),
+        });
       } catch (error) {
         console.error(error);
-        setShareStatus('Unable to delete waitlist participant. Please verify your Firebase permissions.');
+        setShareStatus('Unable to delete pit lane entry. Please verify your Firebase permissions.');
       }
     },
-    [isFirebaseAvailable, waitingPlayers],
+    [getCurrentActorId, isFirebaseAvailable, waitingPlayers],
   );
 
-  const resetEvent = useCallback(async () => {
+  const toggleParticipantCheckIn = useCallback(
+    async (scope: 'players' | 'waitingPlayers', index: number) => {
+      const list = scope === 'players' ? players : waitingPlayers;
+      const player = list[index];
+
+      if (!player) {
+        return;
+      }
+
+      const nextCheckedIn = !player.checkedIn;
+      const actorId = getCurrentActorId();
+      const pathPrefix = scope === 'players' ? 'participants' : 'waitlist';
+
+      if (!isFirebaseAvailable || !eventRef.current || !player.id) {
+        const setter = scope === 'players' ? setPlayers : setWaitingPlayers;
+        setter((current) =>
+          current.map((entry, currentIndex) =>
+            currentIndex === index
+              ? {
+                  ...entry,
+                  checkedIn: nextCheckedIn,
+                  updatedAt: Date.now(),
+                  lastUpdatedBy: actorId,
+                }
+              : entry,
+          ),
+        );
+        return;
+      }
+
+      try {
+        await update(eventRef.current, {
+          [`${pathPrefix}/${player.id}/checkedIn`]: nextCheckedIn,
+          [`${pathPrefix}/${player.id}/updatedAt`]: serverTimestamp(),
+          [`${pathPrefix}/${player.id}/lastUpdatedBy`]: actorId,
+          lastUpdatedBy: actorId,
+          updatedAt: serverTimestamp(),
+        });
+      } catch (error) {
+        console.error(error);
+        setShareStatus('Unable to update check-in status.');
+      }
+    },
+    [getCurrentActorId, isFirebaseAvailable, players, waitingPlayers],
+  );
+
+  const resetBracket = useCallback(async () => {
     setRosterOrder([]);
     setIsRosterFinalized(false);
-    setMatchWinners({});
-    setMatchScores({});
-    setMatchHistory([]);
+    setLockedAt(null);
+    setStageResults(createEmptyStageResults());
+    setRaceHistory([]);
     setIsShufflingRoster(false);
 
     if (!isFirebaseAvailable || !eventRef.current) {
@@ -886,248 +748,201 @@ export function useTournamentEvent() {
       await update(eventRef.current, {
         rosterOrder: [],
         isRosterFinalized: false,
-        matchWinners: {},
-        matchScores: {},
-        matchHistory: [],
+        registrationStatus: getEventRegistrationStatus(players.length, MAX_PLAYERS, false),
+        lockedAt: null,
+        stageResults: createEmptyStageResults(),
+        raceHistory: [],
+        lastUpdatedBy: getCurrentActorId(),
         updatedAt: serverTimestamp(),
       });
     } catch (error) {
       console.error(error);
-      setShareStatus('Failed to reset tournament data.');
+      setShareStatus('Failed to reset stage data.');
     }
-  }, [isFirebaseAvailable]);
+  }, [getCurrentActorId, isFirebaseAvailable, players.length]);
 
-  const submitMatchScore = useCallback(
+  const resetEvent = useCallback(async () => {
+    setPlayers([]);
+    setWaitingPlayers([]);
+    setRosterOrder([]);
+    setIsRosterFinalized(false);
+    setLockedAt(null);
+    setStageResults(createEmptyStageResults());
+    setRaceHistory([]);
+    setIsShufflingRoster(false);
+
+    if (!isFirebaseAvailable || !eventRef.current) {
+      return;
+    }
+
+    try {
+      await update(eventRef.current, {
+        participants: null,
+        waitlist: null,
+        rosterOrder: [],
+        isRosterFinalized: false,
+        registrationStatus: 'open',
+        lockedAt: null,
+        stageResults: createEmptyStageResults(),
+        raceHistory: [],
+        lastUpdatedBy: getCurrentActorId(),
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      console.error(error);
+      setShareStatus('Failed to reset all tournament data.');
+    }
+  }, [getCurrentActorId, isFirebaseAvailable]);
+
+  const submitRaceResult = useCallback(
     (
-      matchLevel: number,
-      matchIndex: number,
-      leftScore: number,
-      rightScore: number,
+      slot: StageRaceSlot,
+      finishingOrder: number[],
     ): SelectionResult => {
       if (!isRosterFinalized) {
         return { kind: 'noop' };
       }
 
       if (
-        matchLevel < 1 ||
-        matchLevel > 4 ||
-        !Number.isInteger(leftScore) ||
-        !Number.isInteger(rightScore) ||
-        leftScore < 0 ||
-        rightScore < 0 ||
-        leftScore === rightScore
+        slot.isLocked ||
+        finishingOrder.length < 2 ||
+        slot.participantIndexes.length !== finishingOrder.length ||
+        new Set(finishingOrder).size !== finishingOrder.length ||
+        slot.participantIndexes.some((entrantIndex) => !finishingOrder.includes(entrantIndex))
       ) {
         return { kind: 'noop' };
       }
 
-      const entrants = getBracketEntrants(players, rosterOrder, isRosterFinalized);
-      while (entrants.length < MAX_PLAYERS) {
-        entrants.push(createEmptyBracketEntrant());
+      const currentStageResults = cloneStageResults(stageResults);
+      const existingResults = currentStageResults[slot.stageKey];
+      const standardResults = existingResults.filter((result) => result.kind === 'standard');
+      const tieBreakResults = existingResults.filter((result) => result.kind === 'tiebreak');
+      const nextResult = {
+        participantIndexes: [...slot.participantIndexes],
+        finishingOrder: [...finishingOrder],
+        kind: slot.kind,
+        tiebreakBand: slot.tiebreakBand
+          ? {
+              startRank: slot.tiebreakBand.startRank,
+              endRank: slot.tiebreakBand.endRank,
+              participantIndexes: [...slot.tiebreakBand.participantIndexes],
+            }
+          : undefined,
+      };
+
+      if (slot.kind === 'standard') {
+        const existingResult = standardResults[slot.raceIndex];
+
+        if (
+          existingResult &&
+          isSameFinishingOrder(existingResult.finishingOrder, finishingOrder)
+        ) {
+          return { kind: 'noop' };
+        }
+
+        currentStageResults[slot.stageKey] = [
+          ...standardResults.slice(0, slot.raceIndex),
+          nextResult,
+        ];
+      } else {
+        const existingResult = tieBreakResults[slot.raceIndex];
+
+        if (
+          existingResult &&
+          isSameFinishingOrder(existingResult.finishingOrder, finishingOrder)
+        ) {
+          return { kind: 'noop' };
+        }
+
+        currentStageResults[slot.stageKey] = [
+          ...standardResults,
+          ...tieBreakResults.slice(0, slot.raceIndex),
+          nextResult,
+        ];
       }
 
-      const participantIndexes = getMatchParticipantIndexes(
-        matchLevel,
-        matchIndex,
-        entrants,
-        matchWinners,
+      if (slot.stageKey !== 'final') {
+        currentStageResults.final = [];
+      }
+
+      const nextRaceHistory = [
+        ...raceHistory,
+        {
+          id: `${Date.now()}-${slot.key}`,
+          stageKey: slot.stageKey,
+          raceLabel: slot.label,
+          recordedAt: Date.now(),
+          previousStageResults: cloneStageResults(stageResults),
+        },
+      ].slice(-MAX_RACE_HISTORY);
+
+      setStageResults(currentStageResults);
+      setRaceHistory(nextRaceHistory);
+
+      if (isFirebaseAvailable && eventRef.current) {
+        const actorId = getCurrentActorId();
+        void update(eventRef.current, {
+          stageResults: currentStageResults,
+          raceHistory: nextRaceHistory,
+          lastUpdatedBy: actorId,
+          updatedAt: serverTimestamp(),
+        }).catch((error) => {
+          console.error(error);
+          setShareStatus('Failed to sync stage state.');
+        });
+      }
+
+      const nextTournament = buildTournamentStages(
+        orderedEntrants,
+        currentStageResults,
+        isRosterFinalized,
       );
 
-      if (participantIndexes.length !== 2) {
-        return { kind: 'noop' };
-      }
-
-      const leftPlayer = entrants[participantIndexes[0]];
-      const rightPlayer = entrants[participantIndexes[1]];
-
-      if (!leftPlayer || !rightPlayer || leftPlayer.empty || rightPlayer.empty) {
-        return { kind: 'noop' };
-      }
-
-      const winnerEntrantIndex = participantIndexes[leftScore > rightScore ? 0 : 1];
-      const key = getWinnerKey(matchLevel, matchIndex);
-      const previousWinner = matchWinners[key];
-      const previousScore = matchScores[key];
-
       if (
-        previousWinner === winnerEntrantIndex &&
-        previousScore?.left === leftScore &&
-        previousScore?.right === rightScore
+        slot.stageKey === 'final' &&
+        nextTournament.finalStage.isFinalized &&
+        nextTournament.podium[0] !== undefined
       ) {
-        return { kind: 'noop' };
-      }
+        const championIndex = nextTournament.podium[0];
+        const champion = championIndex !== undefined ? orderedEntrants[championIndex] : undefined;
 
-      let nextWinners = { ...matchWinners };
-      let nextMatchScores = { ...matchScores };
-      const winnerName =
-        winnerEntrantIndex === participantIndexes[0] ? leftPlayer.name : rightPlayer.name;
-
-      if (previousWinner !== undefined && previousWinner !== winnerEntrantIndex) {
-        const nextLevel = matchLevel + 1;
-        const nextMatchIndex = Math.floor(matchIndex / 2);
-
-        if (nextLevel <= 4) {
-          nextWinners = clearDependentWinners(nextWinners, nextLevel, nextMatchIndex);
-          nextMatchScores = clearDependentMatchScores(nextMatchScores, nextLevel, nextMatchIndex);
-        }
-      }
-
-      nextWinners[key] = winnerEntrantIndex;
-      nextMatchScores[key] = { left: leftScore, right: rightScore };
-
-      const nextMatchHistory = [
-        ...matchHistory,
-        {
-          id: `${Date.now()}-${key}`,
-          scoreKey: key,
-          title: getMatchTitle(matchLevel),
-          leftPlayerName: leftPlayer.name,
-          rightPlayerName: rightPlayer.name,
-          leftScore,
-          rightScore,
-          winnerName,
-          recordedAt: Date.now(),
-          previousMatchWinners: { ...matchWinners },
-          previousMatchScores: { ...matchScores },
-        },
-      ].slice(-MAX_MATCH_HISTORY);
-
-      if (matchLevel === 3 && previousWinner !== undefined && previousWinner !== winnerEntrantIndex) {
-        delete nextWinners[THIRD_PLACE_KEY];
-        delete nextMatchScores[THIRD_PLACE_KEY];
-      }
-
-      setMatchWinners(nextWinners);
-      setMatchScores(nextMatchScores);
-      setMatchHistory(nextMatchHistory);
-
-      if (isFirebaseAvailable && eventRef.current) {
-        void update(eventRef.current, {
-          matchWinners: nextWinners,
-          matchScores: nextMatchScores,
-          matchHistory: nextMatchHistory,
-          updatedAt: serverTimestamp(),
-        }).catch((error) => {
-          console.error(error);
-          setShareStatus('Failed to sync bracket state.');
-        });
-      }
-
-      if (matchLevel !== 4) {
-        return { kind: 'winner' };
-      }
-
-      const champion = entrants[winnerEntrantIndex];
-
-      return {
-        kind: 'champion',
-        championName: champion && !champion.empty ? champion.name : 'Champion',
-      };
-    },
-    [isFirebaseAvailable, isRosterFinalized, matchHistory, matchScores, matchWinners, players, rosterOrder],
-  );
-
-  const submitThirdPlaceScore = useCallback(
-    (leftScore: number, rightScore: number): SelectionResult => {
-      if (!isRosterFinalized) {
-        return { kind: 'noop' };
-      }
-
-      if (
-        !Number.isInteger(leftScore) ||
-        !Number.isInteger(rightScore) ||
-        leftScore < 0 ||
-        rightScore < 0 ||
-        leftScore === rightScore
-      ) {
-        return { kind: 'noop' };
-      }
-
-      const entrants = getBracketEntrants(players, rosterOrder, isRosterFinalized);
-      while (entrants.length < MAX_PLAYERS) {
-        entrants.push(createEmptyBracketEntrant());
-      }
-
-      const thirdPlaceEntrants = getThirdPlaceEntrantIndexes(entrants, matchWinners);
-      const playoffReady = thirdPlaceEntrants.every((entrantIndex) => entrantIndex !== undefined);
-
-      if (!playoffReady || thirdPlaceEntrants[0] === undefined || thirdPlaceEntrants[1] === undefined) {
-        return { kind: 'noop' };
-      }
-
-      const winnerEntrantIndex = leftScore > rightScore ? thirdPlaceEntrants[0] : thirdPlaceEntrants[1];
-      const previousScore = matchScores[THIRD_PLACE_KEY];
-
-      if (
-        matchWinners[THIRD_PLACE_KEY] === winnerEntrantIndex &&
-        previousScore?.left === leftScore &&
-        previousScore?.right === rightScore
-      ) {
-        return { kind: 'noop' };
-      }
-
-      const nextWinners = {
-        ...matchWinners,
-        [THIRD_PLACE_KEY]: winnerEntrantIndex,
-      };
-      const nextMatchScores = {
-        ...matchScores,
-        [THIRD_PLACE_KEY]: { left: leftScore, right: rightScore },
-      };
-      const nextMatchHistory = [
-        ...matchHistory,
-        {
-          id: `${Date.now()}-${THIRD_PLACE_KEY}`,
-          scoreKey: THIRD_PLACE_KEY,
-          title: '3rd Place Playoff',
-          leftPlayerName: entrants[thirdPlaceEntrants[0]].name,
-          rightPlayerName: entrants[thirdPlaceEntrants[1]].name,
-          leftScore,
-          rightScore,
-          winnerName: entrants[winnerEntrantIndex].name,
-          recordedAt: Date.now(),
-          previousMatchWinners: { ...matchWinners },
-          previousMatchScores: { ...matchScores },
-        },
-      ].slice(-MAX_MATCH_HISTORY);
-
-      setMatchWinners(nextWinners);
-      setMatchScores(nextMatchScores);
-      setMatchHistory(nextMatchHistory);
-
-      if (isFirebaseAvailable && eventRef.current) {
-        void update(eventRef.current, {
-          matchWinners: nextWinners,
-          matchScores: nextMatchScores,
-          matchHistory: nextMatchHistory,
-          updatedAt: serverTimestamp(),
-        }).catch((error) => {
-          console.error(error);
-          setShareStatus('Failed to sync bracket state.');
-        });
+        return {
+          kind: 'champion',
+          championName:
+            champion && !champion.empty ? champion.name : preset.championHeading,
+        };
       }
 
       return { kind: 'winner' };
     },
-    [isFirebaseAvailable, isRosterFinalized, matchHistory, matchScores, matchWinners, players, rosterOrder],
+    [
+      getCurrentActorId,
+      isFirebaseAvailable,
+      isRosterFinalized,
+      orderedEntrants,
+      raceHistory,
+      stageResults,
+      preset.championHeading,
+    ],
   );
 
-  const undoLastMatchResult = useCallback(() => {
-    if (!isRosterFinalized || matchHistory.length === 0) {
+  const undoLastRaceResult = useCallback(() => {
+    if (!isRosterFinalized || raceHistory.length === 0) {
       return false;
     }
 
-    const previousEntry = matchHistory[matchHistory.length - 1];
-    const nextMatchHistory = matchHistory.slice(0, -1);
+    const previousEntry = raceHistory[raceHistory.length - 1];
+    const nextRaceHistory = raceHistory.slice(0, -1);
 
-    setMatchWinners(previousEntry.previousMatchWinners);
-    setMatchScores(previousEntry.previousMatchScores);
-    setMatchHistory(nextMatchHistory);
+    setStageResults(cloneStageResults(previousEntry.previousStageResults));
+    setRaceHistory(nextRaceHistory);
 
     if (isFirebaseAvailable && eventRef.current) {
+      const actorId = getCurrentActorId();
       void update(eventRef.current, {
-        matchWinners: previousEntry.previousMatchWinners,
-        matchScores: previousEntry.previousMatchScores,
-        matchHistory: nextMatchHistory,
+        stageResults: previousEntry.previousStageResults,
+        raceHistory: nextRaceHistory,
+        lastUpdatedBy: actorId,
         updatedAt: serverTimestamp(),
       }).catch((error) => {
         console.error(error);
@@ -1136,18 +951,15 @@ export function useTournamentEvent() {
     }
 
     return true;
-  }, [isFirebaseAvailable, isRosterFinalized, matchHistory]);
+  }, [getCurrentActorId, isFirebaseAvailable, isRosterFinalized, raceHistory]);
 
   const isRosterFull = useMemo(() => players.length >= MAX_PLAYERS, [players.length]);
-  const shouldQueueSignup = useMemo(
-    () => shouldQueueNewSignup(isRosterFinalized, players.length),
-    [isRosterFinalized, players.length],
+  const shouldQueueSignup = useMemo(() => registrationStatus === 'full', [registrationStatus]);
+  const canRegister = useMemo(() => registrationStatus !== 'locked', [registrationStatus]);
+  const checkedInPlayersCount = useMemo(
+    () => players.filter((player) => player.checkedIn).length,
+    [players],
   );
-
-  const championIndex = useMemo(() => {
-    const entrants = getBracketEntrants(players, rosterOrder, isRosterFinalized);
-    return getResolvedMatchWinner(4, 0, entrants, matchWinners);
-  }, [isRosterFinalized, matchWinners, players, rosterOrder]);
 
   return {
     eventId,
@@ -1155,24 +967,35 @@ export function useTournamentEvent() {
     waitingPlayers,
     rosterOrder,
     isRosterFinalized,
-    matchWinners,
-    matchScores,
-    matchHistory,
+    lockedAt,
+    registrationStatus,
+    stageResults,
+    raceHistory,
+    groupStages,
+    finalStage,
+    podium,
+    completedStandardRaceCount,
+    totalStandardRaceCount,
+    completedTieBreakCount,
+    resultsReady,
     isFirebaseAvailable,
     isShufflingRoster,
     isRosterFull,
+    canRegister,
     shouldQueueSignup,
+    checkedInPlayersCount,
     shareStatus,
-    championIndex,
+    championName: currentChampionName,
     setShareStatus,
     submitParticipant,
     shareEvent,
     drawRoster,
     deleteParticipant,
     deleteWaitingParticipant,
+    toggleParticipantCheckIn,
+    resetBracket,
     resetEvent,
-    submitMatchScore,
-    submitThirdPlaceScore,
-    undoLastMatchResult,
+    submitRaceResult,
+    undoLastRaceResult,
   };
 }

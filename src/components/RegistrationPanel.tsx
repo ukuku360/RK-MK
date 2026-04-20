@@ -1,74 +1,82 @@
 import type { FormEvent } from 'react';
 import { useState } from 'react';
+import { EVENT_PRESET } from '../constants';
+import type { EventPreset } from '../types';
 
 interface RegistrationPanelProps {
   buttonText: string;
   disabled: boolean;
-  onSubmit: (input: { name: string; aura: string; unitNumber: string }) => Promise<boolean>;
+  statusMessage?: string;
+  preset?: EventPreset;
+  onSubmit: (input: { name: string; nickname: string; teamTag: string }) => Promise<boolean>;
 }
 
 export function RegistrationPanel({
   buttonText,
   disabled,
+  statusMessage = '',
+  preset = EVENT_PRESET,
   onSubmit,
 }: RegistrationPanelProps) {
   const [name, setName] = useState('');
-  const [aura, setAura] = useState('');
-  const [unitNumber, setUnitNumber] = useState('');
+  const [nickname, setNickname] = useState('');
+  const [teamTag, setTeamTag] = useState('');
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const saved = await onSubmit({ name, aura, unitNumber });
+    const saved = await onSubmit({ name, nickname, teamTag });
 
     if (!saved) {
       return;
     }
 
     setName('');
-    setAura('');
-    setUnitNumber('');
+    setNickname('');
+    setTeamTag('');
   }
 
   return (
     <section className="panel user-card registration-panel">
-      <h2>Player Registration</h2>
+      <h2>{preset.registrationTitle}</h2>
       <form onSubmit={handleSubmit}>
         <label>
-          <span>Name</span>
+          <span>{preset.registrationFields.nameLabel}</span>
           <input
             name="name"
             type="text"
-            placeholder="e.g. Minji"
+            placeholder={preset.registrationFields.namePlaceholder}
             required
+            disabled={disabled}
             value={name}
             onChange={(event) => setName(event.target.value)}
           />
         </label>
         <label>
-          <span>Aura Skill</span>
+          <span>{preset.registrationFields.nicknameLabel}</span>
           <input
-            name="aura"
+            name="nickname"
             type="text"
-            placeholder="e.g. Quick reflex"
-            required
-            value={aura}
-            onChange={(event) => setAura(event.target.value)}
+            placeholder={preset.registrationFields.nicknamePlaceholder}
+            disabled={disabled}
+            value={nickname}
+            onChange={(event) => setNickname(event.target.value)}
           />
         </label>
         <label>
-          <span>Unit Number</span>
+          <span>{preset.registrationFields.teamTagLabel}</span>
           <input
-            name="unitNumber"
+            name="teamTag"
             type="text"
-            placeholder="e.g. 1207"
-            required
-            value={unitNumber}
-            onChange={(event) => setUnitNumber(event.target.value)}
+            placeholder={preset.registrationFields.teamTagPlaceholder}
+            disabled={disabled}
+            value={teamTag}
+            onChange={(event) => setTeamTag(event.target.value)}
           />
         </label>
         <button id="addButton" type="submit" disabled={disabled}>
           {buttonText}
         </button>
+        {statusMessage ? <p className="registration-status-note">{statusMessage}</p> : null}
       </form>
     </section>
   );

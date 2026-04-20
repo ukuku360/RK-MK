@@ -1,10 +1,21 @@
-import rkWordmark from '../../ROOMINGKOS BRANDING/Logo/PNG/Copy of RK_Brandmark_RED_CMYK.png';
-import rkPatternGrey from '../../ROOMINGKOS BRANDING/Logo/PNG/RK_PATTERN_GREY.png';
-import type { PlayerRecord } from '../types';
+import rkWordmark from '../assets/branding/roomingkos/rk-wordmark.png';
+import rkPatternGrey from '../assets/branding/roomingkos/rk-pattern-grey.png';
+import spireLogo from '../assets/branding/spire/logos/spire-logo.svg';
+import spireCommunityIllustration from '../assets/branding/spire/illustrations/community.svg';
+import spireRoomRender from '../assets/branding/spire/renders/room-hero.png';
+import type { BrandVariant, EventPreset, PlayerRecord } from '../types';
 
 const POSTER_WIDTH = 1200;
 const POSTER_HEIGHT = 1500;
 const assetDataUrlCache = new Map<string, Promise<string>>();
+
+interface ResultPosterOptions {
+  brandVariant: BrandVariant;
+  preset: EventPreset;
+  firstPlace?: PlayerRecord;
+  secondPlace?: PlayerRecord;
+  thirdPlace?: PlayerRecord;
+}
 
 interface ResultPlacement {
   label: string;
@@ -21,6 +32,18 @@ interface ResultPlacement {
   badgeFill: string;
   badgeTextColor: string;
   highlightFill: string;
+  player?: PlayerRecord;
+}
+
+interface SpirePlacement {
+  label: string;
+  rankNumber: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  accent: string;
+  glow: string;
   player?: PlayerRecord;
 }
 
@@ -102,13 +125,18 @@ function formatPlayer(player?: PlayerRecord) {
   if (!player || player.empty) {
     return {
       nameLines: ['TBD'],
-      meta: 'UNIT -',
+      meta: 'TAG -',
     };
   }
 
   return {
     nameLines: wrapText(player.name, 15, 2),
-    meta: truncateText(`UNIT ${player.unitNumber || '-'}`, 24),
+    meta: truncateText(
+      player.nickname || player.teamTag
+        ? `${player.nickname || 'TAG'} · ${player.teamTag || '-'}`
+        : 'TAG -',
+      24,
+    ),
   };
 }
 
@@ -117,7 +145,10 @@ function clamp(value: number, min: number, max: number) {
 }
 
 function getNameTypography(width: number, nameLines: string[]) {
-  const longestLineLength = nameLines.reduce((maxLength, line) => Math.max(maxLength, line.length), 1);
+  const longestLineLength = nameLines.reduce(
+    (maxLength, line) => Math.max(maxLength, line.length),
+    1,
+  );
   const estimatedFontSize = Math.floor((width + 16) / (longestLineLength * 0.72));
   const fontSize = clamp(estimatedFontSize, 24, 36);
   const lineHeight = Math.round(fontSize * 0.92);
@@ -153,14 +184,13 @@ function loadAssetDataUrl(assetUrl: string) {
     return cached;
   }
 
-  const promise = fetch(assetUrl)
-    .then(async (response) => {
-      if (!response.ok) {
-        throw new Error(`Unable to load branding asset: ${assetUrl}`);
-      }
+  const promise = fetch(assetUrl).then(async (response) => {
+    if (!response.ok) {
+      throw new Error(`Unable to load branding asset: ${assetUrl}`);
+    }
 
-      return blobToDataUrl(await response.blob());
-    });
+    return blobToDataUrl(await response.blob());
+  });
 
   assetDataUrlCache.set(assetUrl, promise);
   return promise;
@@ -186,10 +216,6 @@ async function canvasToBlob(canvas: HTMLCanvasElement) {
   }
 
   return blob;
-}
-
-function createObjectUrl(blob: Blob) {
-  return URL.createObjectURL(blob);
 }
 
 function renderPlacement(placement: ResultPlacement) {
@@ -308,7 +334,85 @@ function renderPlacement(placement: ResultPlacement) {
   `;
 }
 
-async function createPosterMarkup(
+function renderSpirePlacement(placement: SpirePlacement) {
+  const player = formatPlayer(placement.player);
+  const { fontSize: nameFontSize, lineHeight: nameLineHeight } = getNameTypography(
+    placement.width - 56,
+    player.nameLines,
+  );
+  const nameY = placement.y + 126;
+
+  return `
+    <g>
+      <rect
+        x="${placement.x}"
+        y="${placement.y}"
+        width="${placement.width}"
+        height="${placement.height}"
+        rx="34"
+        fill="#082d22"
+        stroke="${placement.accent}"
+        stroke-width="4"
+        filter="url(#spireShadow)"
+      />
+      <rect
+        x="${placement.x + 22}"
+        y="${placement.y + 22}"
+        width="${placement.width - 44}"
+        height="12"
+        rx="6"
+        fill="${placement.glow}"
+        opacity="0.94"
+      />
+      <text
+        x="${placement.x + 28}"
+        y="${placement.y + 72}"
+        font-size="22"
+        font-weight="700"
+        letter-spacing="2.6"
+        fill="${placement.accent}"
+        font-family="'Helvetica Neue', 'Arial', sans-serif"
+      >${placement.label.toUpperCase()}</text>
+      <text
+        x="${placement.x + 28}"
+        y="${nameY}"
+        font-size="${nameFontSize}"
+        font-weight="900"
+        fill="#f9f7f4"
+        font-family="'Arial Black', 'Arial', sans-serif"
+      >
+        ${player.nameLines
+          .map(
+            (line, lineIndex) =>
+              `<tspan x="${placement.x + 28}" dy="${lineIndex === 0 ? 0 : nameLineHeight}">${escapeXml(line)}</tspan>`,
+          )
+          .join('')}
+      </text>
+      <text
+        x="${placement.x + 28}"
+        y="${placement.y + placement.height - 48}"
+        font-size="22"
+        font-weight="700"
+        letter-spacing="1.2"
+        fill="#cfe4da"
+        font-family="'Helvetica Neue', 'Arial', sans-serif"
+      >${escapeXml(player.meta.toUpperCase())}</text>
+      <text
+        x="${placement.x + placement.width - 28}"
+        y="${placement.y + placement.height - 34}"
+        text-anchor="end"
+        font-size="148"
+        font-weight="900"
+        fill="${placement.glow}"
+        opacity="0.24"
+        font-family="'Arial Black', 'Arial', sans-serif"
+      >${placement.rankNumber}</text>
+    </g>
+  `;
+}
+
+async function createRoomingKosPosterMarkup(
+  preset: EventPreset,
   firstPlace?: PlayerRecord,
   secondPlace?: PlayerRecord,
   thirdPlace?: PlayerRecord,
@@ -457,7 +561,7 @@ async function createPosterMarkup(
           letter-spacing="5"
           fill="#fff8f0"
           font-family="'Helvetica Neue', 'Arial', sans-serif"
-        >TABLE TENNIS TOURNAMENT</text>
+        >MARIO KART TOURNAMENT</text>
       </g>
 
       <text
@@ -468,7 +572,7 @@ async function createPosterMarkup(
         font-weight="900"
         fill="#15161a"
         font-family="'Arial Black', 'Arial', sans-serif"
-      >CHAMPION</text>
+      >GRAND PRIX</text>
       <text
         x="600"
         y="566"
@@ -510,22 +614,193 @@ async function createPosterMarkup(
           letter-spacing="3"
           fill="#fffaf4"
           font-family="'Helvetica Neue', 'Arial', sans-serif"
-        >ROOMINGKOS EVENTS</text>
+        >${escapeXml(preset.title.toUpperCase())}</text>
       </g>
     </svg>
   `;
 }
 
-export async function createResultPosterPng(
+async function createSpirePosterMarkup(
+  preset: EventPreset,
   firstPlace?: PlayerRecord,
   secondPlace?: PlayerRecord,
   thirdPlace?: PlayerRecord,
 ) {
-  const posterMarkup = await createPosterMarkup(firstPlace, secondPlace, thirdPlace);
+  const [logoDataUrl, renderDataUrl, illustrationDataUrl] = await Promise.all([
+    loadAssetDataUrl(spireLogo),
+    loadAssetDataUrl(spireRoomRender),
+    loadAssetDataUrl(spireCommunityIllustration),
+  ]);
+
+  const today = new Intl.DateTimeFormat(undefined, {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  }).format(new Date());
+
+  const placements: SpirePlacement[] = [
+    {
+      label: 'Second',
+      rankNumber: '2',
+      x: 96,
+      y: 918,
+      width: 300,
+      height: 330,
+      accent: '#8edfa5',
+      glow: '#beffb0',
+      player: secondPlace,
+    },
+    {
+      label: 'First',
+      rankNumber: '1',
+      x: 450,
+      y: 818,
+      width: 300,
+      height: 430,
+      accent: '#34f574',
+      glow: '#beffb0',
+      player: firstPlace,
+    },
+    {
+      label: 'Third',
+      rankNumber: '3',
+      x: 804,
+      y: 978,
+      width: 300,
+      height: 270,
+      accent: '#9bc6b4',
+      glow: '#86d3a1',
+      player: thirdPlace,
+    },
+  ];
+
+  const placementMarkup = placements.map((placement) => renderSpirePlacement(placement)).join('');
+
+  return `
+    <svg xmlns="http://www.w3.org/2000/svg" width="${POSTER_WIDTH}" height="${POSTER_HEIGHT}" viewBox="0 0 ${POSTER_WIDTH} ${POSTER_HEIGHT}">
+      <defs>
+        <linearGradient id="spireBg" x1="0" x2="1" y1="0" y2="1">
+          <stop offset="0%" stop-color="#001f17" />
+          <stop offset="100%" stop-color="#083126" />
+        </linearGradient>
+        <linearGradient id="spireLight" x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0%" stop-color="#f9f7f4" />
+          <stop offset="100%" stop-color="#e8f3eb" />
+        </linearGradient>
+        <filter id="spireShadow" x="-20%" y="-20%" width="160%" height="160%">
+          <feDropShadow dx="0" dy="18" stdDeviation="0" flood-color="#00130d" flood-opacity="0.7" />
+        </filter>
+        <clipPath id="spireRenderClip">
+          <rect x="720" y="152" width="388" height="460" rx="38" />
+        </clipPath>
+      </defs>
+
+      <rect width="${POSTER_WIDTH}" height="${POSTER_HEIGHT}" fill="url(#spireBg)" />
+      <circle cx="1056" cy="146" r="262" fill="#34f574" opacity="0.08" />
+      <circle cx="164" cy="1268" r="192" fill="#beffb0" opacity="0.06" />
+      <path d="M94 122 C288 62, 498 52, 712 118" fill="none" stroke="#34f574" stroke-width="2" opacity="0.26" />
+      <path d="M148 182 C348 118, 570 126, 850 206" fill="none" stroke="#beffb0" stroke-width="2" opacity="0.16" />
+
+      <rect
+        x="60"
+        y="60"
+        width="1080"
+        height="1380"
+        rx="48"
+        fill="rgba(249, 247, 244, 0.04)"
+        stroke="rgba(190, 255, 176, 0.16)"
+        stroke-width="2"
+      />
+
+      <g transform="translate(96 100)">
+        <rect width="480" height="114" rx="34" fill="url(#spireLight)" />
+        <image href="${logoDataUrl}" x="38" y="28" width="404" height="58" preserveAspectRatio="xMinYMid meet" />
+      </g>
+
+      <text
+        x="96"
+        y="324"
+        font-size="34"
+        font-weight="700"
+        letter-spacing="4"
+        fill="#beffb0"
+        font-family="'Helvetica Neue', 'Arial', sans-serif"
+      >MARIO KART NIGHT</text>
+      <text
+        x="96"
+        y="438"
+        font-size="116"
+        font-weight="900"
+        fill="#f9f7f4"
+        font-family="'Arial Black', 'Arial', sans-serif"
+      >RESULT</text>
+      <text
+        x="96"
+        y="506"
+        font-size="24"
+        font-weight="700"
+        fill="#d8e8de"
+        font-family="'Helvetica Neue', 'Arial', sans-serif"
+      >${escapeXml(today.toUpperCase())}</text>
+
+      <image
+        href="${renderDataUrl}"
+        x="720"
+        y="152"
+        width="388"
+        height="460"
+        preserveAspectRatio="xMidYMid slice"
+        clip-path="url(#spireRenderClip)"
+      />
+      <rect x="720" y="152" width="388" height="460" rx="38" fill="none" stroke="#beffb0" stroke-width="4" opacity="0.45" />
+
+      <g transform="translate(96 598)">
+        <rect width="548" height="196" rx="34" fill="rgba(249, 247, 244, 0.06)" stroke="rgba(190, 255, 176, 0.22)" stroke-width="2" />
+        <image href="${illustrationDataUrl}" x="28" y="24" width="176" height="148" preserveAspectRatio="xMidYMid meet" opacity="0.9" />
+        <text x="238" y="70" font-size="20" font-weight="700" letter-spacing="2.4" fill="#34f574" font-family="'Helvetica Neue', 'Arial', sans-serif">SPIRE EDITION</text>
+        <text x="238" y="118" font-size="48" font-weight="900" fill="#f9f7f4" font-family="'Arial Black', 'Arial', sans-serif">Calmer tone.</text>
+        <text x="238" y="162" font-size="26" font-weight="700" fill="#cfe4da" font-family="'Helvetica Neue', 'Arial', sans-serif">Dedicated branding, cleaner resident flow, and a separate podium finish.</text>
+      </g>
+
+      ${placementMarkup}
+
+      <g transform="translate(96 1340)">
+        <rect width="1008" height="72" rx="36" fill="#f9f7f4" opacity="0.94" />
+        <text
+          x="504"
+          y="47"
+          text-anchor="middle"
+          font-size="24"
+          font-weight="900"
+          letter-spacing="3"
+          fill="#00291f"
+          font-family="'Helvetica Neue', 'Arial', sans-serif"
+        >${escapeXml(preset.title.toUpperCase())}</text>
+      </g>
+    </svg>
+  `;
+}
+
+async function createPosterMarkup({
+  brandVariant,
+  preset,
+  firstPlace,
+  secondPlace,
+  thirdPlace,
+}: ResultPosterOptions) {
+  if (brandVariant === 'spire') {
+    return createSpirePosterMarkup(preset, firstPlace, secondPlace, thirdPlace);
+  }
+
+  return createRoomingKosPosterMarkup(preset, firstPlace, secondPlace, thirdPlace);
+}
+
+export async function createResultPosterPng(options: ResultPosterOptions) {
+  const posterMarkup = await createPosterMarkup(options);
   const svgBlob = new Blob([posterMarkup], {
     type: 'image/svg+xml;charset=utf-8',
   });
-  const svgUrl = createObjectUrl(svgBlob);
+  const svgUrl = URL.createObjectURL(svgBlob);
 
   try {
     const image = await loadImage(svgUrl);

@@ -8,13 +8,13 @@ export function makeProfileCardData(
     return null;
   }
 
-  const fallbackKey = `${player.name}|${player.aura}|${player.unitNumber}|${metaLabel}`;
+  const fallbackKey = `${player.name}|${player.nickname}|${player.teamTag}|${metaLabel}`;
 
   return {
     key: player.id || fallbackKey,
     name: player.name,
-    aura: player.aura || 'No aura listed yet.',
-    unitNumber: player.unitNumber || 'No unit number listed yet.',
+    nickname: player.nickname || 'No racer tag listed yet.',
+    teamTag: player.teamTag || 'No crew tag listed yet.',
     metaLabel,
   };
 }

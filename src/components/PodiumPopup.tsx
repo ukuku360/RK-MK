@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
+import { EVENT_PRESET } from '../constants';
 import type { PlayerRecord } from '../types';
-import rkWordmark from '../../ROOMINGKOS BRANDING/Logo/PNG/Copy of RK_Brandmark_RED_CMYK.png';
-import rkPattern from '../../ROOMINGKOS BRANDING/Logo/PNG/RK_PATTERN_GREY.png';
-import rkBrandmark from '../../ROOMINGKOS BRANDING/Logo/PNG/RK_Brandmark_reduced_Rev_CMYK@4x.png';
+import rkWordmark from '../assets/branding/roomingkos/rk-wordmark.png';
+import rkPattern from '../assets/branding/roomingkos/rk-pattern-grey.png';
+import rkBrandmark from '../assets/branding/roomingkos/rk-brandmark.png';
 
 interface PodiumPopupProps {
   visible: boolean;
@@ -200,7 +201,7 @@ export function PodiumPopup({
           position: relative;
           z-index: 2;
         }
-        .podium-aura {
+        .podium-meta {
           font-size: clamp(0.75rem, 1.5vw, 0.875rem);
           font-weight: 800;
           color: #fff;
@@ -306,7 +307,7 @@ export function PodiumPopup({
           
           <div className="podium-header">
             <img src={rkWordmark} alt="RoomingKos" className="podium-rk-logo" />
-            <h2 className="podium-title">Champion</h2>
+            <h2 className="podium-title">{EVENT_PRESET.championHeading}</h2>
           </div>
           
           <div className="podium-stage">
@@ -314,7 +315,9 @@ export function PodiumPopup({
             <div className="podium-pillar podium-second" style={{ animationDelay: '1.2s' }}>
               <div className="podium-avatar">🥈</div>
               <div className="podium-name">{secondPlace && !secondPlace.empty ? secondPlace.name : 'TBD'}</div>
-              <div className="podium-aura">{secondPlace && !secondPlace.empty ? secondPlace.aura : '-'}</div>
+              <div className="podium-meta">
+                {secondPlace && !secondPlace.empty ? secondPlace.nickname || secondPlace.teamTag || '-' : '-'}
+              </div>
               <div className="podium-block">2</div>
             </div>
             
@@ -322,7 +325,9 @@ export function PodiumPopup({
             <div className="podium-pillar podium-first" style={{ animationDelay: '2.4s' }}>
               <div className="podium-avatar">👑</div>
               <div className="podium-name">{firstPlace && !firstPlace.empty ? firstPlace.name : 'TBD'}</div>
-              <div className="podium-aura">{firstPlace && !firstPlace.empty ? firstPlace.aura : '-'}</div>
+              <div className="podium-meta">
+                {firstPlace && !firstPlace.empty ? firstPlace.nickname || firstPlace.teamTag || '-' : '-'}
+              </div>
               <div className="podium-block">
                 1
                 <div className="podium-brand-badge">
@@ -335,7 +340,9 @@ export function PodiumPopup({
             <div className="podium-pillar podium-third" style={{ animationDelay: '0.4s' }}>
               <div className="podium-avatar">🥉</div>
               <div className="podium-name">{thirdPlace && !thirdPlace.empty ? thirdPlace.name : 'TBD'}</div>
-              <div className="podium-aura">{thirdPlace && !thirdPlace.empty ? thirdPlace.aura : '-'}</div>
+              <div className="podium-meta">
+                {thirdPlace && !thirdPlace.empty ? thirdPlace.nickname || thirdPlace.teamTag || '-' : '-'}
+              </div>
               <div className="podium-block">3</div>
             </div>
           </div>
@@ -347,7 +354,7 @@ export function PodiumPopup({
               onClick={onShareResult}
               disabled={isSharingResult}
             >
-              {isSharingResult ? 'Preparing PNG...' : 'Share Result'}
+              {isSharingResult ? 'Preparing PNG...' : EVENT_PRESET.podiumShareButtonText}
             </button>
             <p className="podium-share-status" aria-live="polite">
               {shareStatus}
