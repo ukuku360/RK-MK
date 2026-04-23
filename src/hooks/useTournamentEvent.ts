@@ -1,17 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  onValue,
-  orderByChild,
-  query,
-  ref,
-  serverTimestamp,
-  update,
-  type DatabaseReference,
-} from 'firebase/database';
-import {
   EVENT_REGISTRATION_ENDPOINT,
-  FIREBASE_MAX_RETRIES,
-  FIREBASE_RETRY_BASE_DELAY_MS,
   MAX_PLAYERS,
 } from '../constants';
 import {
@@ -19,9 +8,8 @@ import {
   isLocalDevelopmentMode,
   LOCAL_DEV_ADMIN_UID,
 } from '../lib/adminAccess';
-import { getFirebaseAuth, getFirebaseDatabase, isFirebaseConfigured } from '../lib/firebase';
+import { getStoredAdminSessionToken } from '../lib/adminSession';
 import type {
-  BrandVariant,
   EventPreset,
   EventRegistrationStatus,
   PersistedEventState,
@@ -46,9 +34,9 @@ import {
 import {
   applyParticipantRegistration,
   getEventRegistrationStatus,
+  normalizePlayerRecord,
   normalizeRegistrationInput,
 } from '../utils/registration';
-import { ensureEventDocument, purgeSeededTestDataRemotelyIfNeeded } from './tournament/firebase';
 import {
   loadPersistedEventState,
   MAX_RACE_HISTORY,
@@ -56,8 +44,10 @@ import {
   normalizeRosterEntry,
   normalizeStageResults,
   persistEventState,
-  snapshotToPlayerRecords,
 } from './tournament/state';
+
+const EVENT_STATE_ENDPOINT = '/api/events/state';
+const EVENT_STATE_POLL_INTERVAL_MS = 2500;
 
 interface SubmitPlayerInput {
   name: string;
@@ -65,21 +55,9 @@ interface SubmitPlayerInput {
   teamTag: string;
 }
 
-function createLocalDevSeedPlayers() {
-  return Array.from({ length: MAX_PLAYERS }, (_, index) => {
-    const playerNumber = index + 1;
-
-    return {
-      id: `seed-spire-${playerNumber}`,
-      name: `Demo Player ${playerNumber}`,
-      nickname: `Test tag ${playerNumber}`,
-      teamTag: 'Spire',
-      createdAt: Date.now() + index,
-      updatedAt: Date.now() + index,
-      lastUpdatedBy: 'local-dev-seed',
-      checkedIn: false,
-    } satisfies PlayerRecord;
-  });
+interface EventStateResponse {
+  state?: PersistedEventState;
+  error?: string;
 }
 
 function copyToClipboard(value: string) {
@@ -104,7 +82,6 @@ function isSameFinishingOrder(
 export function useTournamentEvent(
   eventId: string,
   preset: EventPreset,
-  brandVariant: BrandVariant = 'roomingkos',
 ) {
   const [players, setPlayers] = useState<PlayerRecord[]>([]);
   const [waitingPlayers, setWaitingPlayers] = useState<PlayerRecord[]>([]);
@@ -117,13 +94,9 @@ export function useTournamentEvent(
   const [shareStatus, setShareStatus] = useState('');
   const [isShufflingRoster, setIsShufflingRoster] = useState(false);
 
-  const participantsRef = useRef<DatabaseReference | null>(null);
-  const waitlistRef = useRef<DatabaseReference | null>(null);
-  const eventRef = useRef<DatabaseReference | null>(null);
   const didRestoreLocalState = useRef(false);
-  const retryTimeoutRef = useRef<number | null>(null);
+  const pollTimeoutRef = useRef<number | null>(null);
   const shuffleTimeoutRef = useRef<number | null>(null);
-  const firebaseRetryCountRef = useRef(0);
   const registrationStatus = useMemo<EventRegistrationStatus>(
     () => getEventRegistrationStatus(players.length, MAX_PLAYERS, isRosterFinalized),
     [isRosterFinalized, players.length],
@@ -133,12 +106,67 @@ export function useTournamentEvent(
       return LOCAL_DEV_ADMIN_UID;
     }
 
-    if (!isFirebaseConfigured()) {
-      return 'race-control';
-    }
-
-    return getFirebaseAuth().currentUser?.uid ?? 'race-control';
+    return 'race-control';
   }, []);
+
+  const applyRemoteState = useCallback((state: PersistedEventState) => {
+    setPlayers(Array.isArray(state.players) ? state.players.map((player) => normalizePlayerRecord(player)) : []);
+    setWaitingPlayers(
+      Array.isArray(state.waitingPlayers)
+        ? state.waitingPlayers.map((player) => normalizePlayerRecord(player))
+        : [],
+    );
+    setRosterOrder(
+      Array.isArray(state.rosterOrder)
+        ? state.rosterOrder.map((entry) => normalizeRosterEntry(entry))
+        : [],
+    );
+    setIsRosterFinalized(Boolean(state.isRosterFinalized));
+    setLockedAt(typeof state.lockedAt === 'number' ? state.lockedAt : null);
+    setStageResults(normalizeStageResults(state.stageResults));
+    setRaceHistory(normalizeRaceHistory(state.raceHistory));
+  }, []);
+
+  const patchRemoteEvent = useCallback(
+    async (updates: Record<string, unknown>, failureMessage: string) => {
+      const token = getStoredAdminSessionToken();
+
+      if (!token) {
+        setShareStatus('Admin session expired. Please log in again.');
+        return false;
+      }
+
+      try {
+        const response = await fetch(EVENT_STATE_ENDPOINT, {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            eventId,
+            updates,
+          }),
+        });
+        const payload = (await response.json().catch(() => ({}))) as EventStateResponse;
+
+        if (!response.ok || !payload.state) {
+          setShareStatus(payload.error || failureMessage);
+          return false;
+        }
+
+        applyRemoteState(payload.state);
+        setIsFirebaseAvailable(true);
+        return true;
+      } catch (error) {
+        console.error(error);
+        setShareStatus(failureMessage);
+        setIsFirebaseAvailable(false);
+        return false;
+      }
+    },
+    [applyRemoteState, eventId],
+  );
 
   useEffect(() => {
     didRestoreLocalState.current = false;
@@ -197,163 +225,58 @@ export function useTournamentEvent(
   ]);
 
   useEffect(() => {
-    if (!isLocalDevelopmentMode()) {
-      return;
-    }
-
-    if (brandVariant !== 'spire') {
-      return;
-    }
-
-    if (!didRestoreLocalState.current || isRosterFinalized || players.length > 0 || waitingPlayers.length > 0) {
-      return;
-    }
-
-    setPlayers(createLocalDevSeedPlayers());
-    setWaitingPlayers([]);
-    setShareStatus('Local Spire preview seeded with 16 demo drivers.');
-  }, [brandVariant, eventId, isRosterFinalized, players.length, waitingPlayers.length]);
-
-  useEffect(() => {
-    if (!isFirebaseConfigured()) {
+    if (isLocalDevelopmentMode()) {
       setIsFirebaseAvailable(false);
-      setShareStatus(
-        isLocalDevelopmentMode()
-          ? 'Local development mode enabled. Registrations and admin changes stay in this browser.'
-          : 'Firebase is not configured. Running in local-only mode.',
-      );
+      setShareStatus('Local development mode enabled. Registrations and admin changes stay in this browser.');
       return;
     }
 
     let isActive = true;
-    const unsubscribers: Array<() => void> = [];
 
-    const connect = async () => {
+    const loadRemoteState = async () => {
       try {
-        const db = getFirebaseDatabase();
-        participantsRef.current = ref(db, `events/${eventId}/participants`);
-        waitlistRef.current = ref(db, `events/${eventId}/waitlist`);
-        eventRef.current = ref(db, `events/${eventId}`);
+        const response = await fetch(`${EVENT_STATE_ENDPOINT}?eventId=${encodeURIComponent(eventId)}`);
+        const payload = (await response.json().catch(() => ({}))) as EventStateResponse;
 
-        if (!participantsRef.current || !waitlistRef.current || !eventRef.current) {
-          return;
+        if (!response.ok || !payload.state) {
+          throw new Error(payload.error || 'Unable to load event state.');
         }
-
-        await ensureEventDocument(eventRef.current, preset.title);
-        await purgeSeededTestDataRemotelyIfNeeded(
-          eventRef.current,
-          participantsRef.current,
-          waitlistRef.current,
-        );
 
         if (!isActive) {
           return;
         }
 
+        applyRemoteState(payload.state);
         setIsFirebaseAvailable(true);
-        setShareStatus('Live sync enabled. Share this page to collect driver registrations.');
-        firebaseRetryCountRef.current = 0;
-
-        unsubscribers.push(
-          onValue(
-            query(participantsRef.current, orderByChild('createdAt')),
-            (snapshot) => {
-              if (!isActive) {
-                return;
-              }
-
-              setPlayers(snapshotToPlayerRecords(snapshot));
-            },
-            (error) => {
-              console.error('[RK Events] Participants listener error:', error);
-              setShareStatus('Realtime sync error. Refreshing list from local input.');
-            },
-          ),
-        );
-
-        unsubscribers.push(
-          onValue(
-            query(waitlistRef.current, orderByChild('createdAt')),
-            (snapshot) => {
-              if (!isActive) {
-                return;
-              }
-
-              setWaitingPlayers(snapshotToPlayerRecords(snapshot));
-            },
-            (error) => {
-              console.error('[RK Events] Waitlist listener error:', error);
-              setShareStatus('Realtime pit lane sync error. Refreshing from local input.');
-            },
-          ),
-        );
-
-        unsubscribers.push(
-          onValue(
-            eventRef.current,
-            (snapshot) => {
-              if (!isActive || !snapshot.exists()) {
-                return;
-              }
-
-              const data = snapshot.val() as {
-                rosterOrder?: RosterEntry[];
-                isRosterFinalized?: boolean;
-                lockedAt?: number | null;
-                stageResults?: unknown;
-                raceHistory?: unknown;
-              };
-
-              setRosterOrder(
-                Array.isArray(data?.rosterOrder)
-                  ? data.rosterOrder.map((entry) => normalizeRosterEntry(entry))
-                  : [],
-              );
-              setIsRosterFinalized(Boolean(data?.isRosterFinalized));
-              setLockedAt(typeof data?.lockedAt === 'number' ? data.lockedAt : null);
-              setStageResults(normalizeStageResults(data?.stageResults));
-              setRaceHistory(normalizeRaceHistory(data?.raceHistory));
-            },
-            (error) => {
-              console.error('[RK Events] Event listener error:', error);
-              setShareStatus('Failed to sync stage state.');
-            },
-          ),
+        setShareStatus((current) =>
+          current && !current.includes('unavailable')
+            ? current
+            : 'Live sync enabled. Share this page to collect driver registrations.',
         );
       } catch (error) {
-        console.error('[RK Events] Firebase initialization error:', error);
+        console.error('[RK Events] Event state sync error:', error);
 
-        if (!isActive) {
-          return;
+        if (isActive) {
+          setIsFirebaseAvailable(false);
+          setShareStatus('Live sync unavailable. Retrying...');
         }
-
-        setIsFirebaseAvailable(false);
-
-        if (firebaseRetryCountRef.current >= FIREBASE_MAX_RETRIES) {
-          setShareStatus('Firebase unavailable. Refresh to try again.');
-          return;
+      } finally {
+        if (isActive) {
+          pollTimeoutRef.current = window.setTimeout(loadRemoteState, EVENT_STATE_POLL_INTERVAL_MS);
         }
-
-        setShareStatus('Unable to connect to Firebase. Retrying...');
-        firebaseRetryCountRef.current += 1;
-        const retryDelay =
-          FIREBASE_RETRY_BASE_DELAY_MS * Math.pow(2, firebaseRetryCountRef.current - 1);
-
-        retryTimeoutRef.current = window.setTimeout(connect, retryDelay);
       }
     };
 
-    void connect();
+    void loadRemoteState();
 
     return () => {
       isActive = false;
-      unsubscribers.forEach((unsubscribe) => unsubscribe());
 
-      if (retryTimeoutRef.current) {
-        window.clearTimeout(retryTimeoutRef.current);
+      if (pollTimeoutRef.current) {
+        window.clearTimeout(pollTimeoutRef.current);
       }
     };
-  }, [eventId, preset.title]);
+  }, [applyRemoteState, eventId]);
 
   useEffect(() => {
     return () => {
@@ -409,7 +332,7 @@ export function useTournamentEvent(
         return false;
       }
 
-      if (!isFirebaseAvailable || !eventRef.current) {
+      if (isLocalDevelopmentMode()) {
         const localResult = applyParticipantRegistration({
           players,
           waitingPlayers,
@@ -455,6 +378,7 @@ export function useTournamentEvent(
         const payload = (await response.json().catch(() => ({}))) as {
           error?: string;
           message?: string;
+          state?: PersistedEventState;
         };
 
         if (!response.ok) {
@@ -462,15 +386,21 @@ export function useTournamentEvent(
           return false;
         }
 
+        if (payload.state) {
+          applyRemoteState(payload.state);
+        }
+
+        setIsFirebaseAvailable(true);
         setShareStatus(payload.message || 'Driver added to the grid.');
         return true;
       } catch (error) {
         console.error(error);
+        setIsFirebaseAvailable(false);
         setShareStatus('Unable to save driver right now.');
         return false;
       }
     },
-    [eventId, isFirebaseAvailable, isRosterFinalized, isShufflingRoster, players, waitingPlayers],
+    [applyRemoteState, eventId, isRosterFinalized, isShufflingRoster, players, waitingPlayers],
   );
 
   const shareEvent = useCallback(async () => {
@@ -532,24 +462,24 @@ export function useTournamentEvent(
       setRaceHistory([]);
       setIsShufflingRoster(false);
 
-      if (isFirebaseAvailable && eventRef.current) {
-        void update(eventRef.current, {
-          isRosterFinalized: true,
-          rosterOrder: finalizedIds,
-          registrationStatus: 'locked',
-          lockedAt: serverTimestamp(),
-          stageResults: nextStageResults,
-          raceHistory: [],
-          maxPlayers: MAX_PLAYERS,
-          lastUpdatedBy: actorId,
-          updatedAt: serverTimestamp(),
-        }).catch((error) => {
-          console.error(error);
-          setShareStatus('Failed to lock the draw. Please try again.');
-        });
+      if (!isLocalDevelopmentMode()) {
+        void patchRemoteEvent(
+          {
+            isRosterFinalized: true,
+            rosterOrder: finalizedIds,
+            registrationStatus: 'locked',
+            lockedAt: Date.now(),
+            stageResults: nextStageResults,
+            raceHistory: [],
+            maxPlayers: MAX_PLAYERS,
+            lastUpdatedBy: actorId,
+            updatedAt: Date.now(),
+          },
+          'Failed to lock the draw. Please try again.',
+        );
       }
     }, 1600);
-  }, [getCurrentActorId, isFirebaseAvailable, isShufflingRoster, players]);
+  }, [getCurrentActorId, isShufflingRoster, patchRemoteEvent, players]);
 
   const deleteParticipant = useCallback(
     async (index: number) => {
@@ -593,7 +523,7 @@ export function useTournamentEvent(
       const nextStageResults = shouldResetStages ? createEmptyStageResults() : stageResults;
       const nextRaceHistory = shouldResetStages ? [] : raceHistory;
 
-      if (!isFirebaseAvailable || !participantsRef.current || !eventRef.current || !player.id) {
+      if (isLocalDevelopmentMode() || !player.id) {
         setPlayers(nextPlayers);
         setWaitingPlayers(nextWaitingPlayers);
         setRosterOrder(nextRosterOrder);
@@ -613,14 +543,14 @@ export function useTournamentEvent(
             isRosterFinalized,
           ),
           lastUpdatedBy: actorId,
-          updatedAt: serverTimestamp(),
+          updatedAt: Date.now(),
         };
 
         if (promotedPlayer?.id && waitingPlayer?.id) {
           const { id: promotedId, ...payload } = promotedPlayer;
           updates[`participants/${promotedId}`] = {
             ...payload,
-            updatedAt: serverTimestamp(),
+            updatedAt: Date.now(),
             lastUpdatedBy: actorId,
           };
           updates[`waitlist/${waitingPlayer.id}`] = null;
@@ -632,24 +562,26 @@ export function useTournamentEvent(
           updates.raceHistory = nextRaceHistory;
         }
 
-        await update(eventRef.current, updates);
+        const synced = await patchRemoteEvent(updates, 'Unable to delete driver. Please verify your admin session.');
 
-        setPlayers(nextPlayers);
-        setWaitingPlayers(nextWaitingPlayers);
-        setRosterOrder(nextRosterOrder);
-        if (shouldResetStages) {
-          setStageResults(createEmptyStageResults());
-          setRaceHistory([]);
+        if (synced) {
+          setPlayers(nextPlayers);
+          setWaitingPlayers(nextWaitingPlayers);
+          setRosterOrder(nextRosterOrder);
+          if (shouldResetStages) {
+            setStageResults(createEmptyStageResults());
+            setRaceHistory([]);
+          }
         }
       } catch (error) {
         console.error(error);
-        setShareStatus('Unable to delete driver. Please verify your Firebase permissions.');
+        setShareStatus('Unable to delete driver. Please verify your admin session.');
       }
     },
     [
       getCurrentActorId,
-      isFirebaseAvailable,
       isRosterFinalized,
+      patchRemoteEvent,
       players,
       raceHistory,
       rosterOrder,
@@ -667,23 +599,26 @@ export function useTournamentEvent(
       const actorId = getCurrentActorId();
       const player = waitingPlayers[index];
 
-      if (!isFirebaseAvailable || !waitlistRef.current || !eventRef.current || !player.id) {
+      if (isLocalDevelopmentMode() || !player.id) {
         setWaitingPlayers((current) => current.filter((_, currentIndex) => currentIndex !== index));
         return;
       }
 
       try {
-        await update(eventRef.current, {
-          [`waitlist/${player.id}`]: null,
-          lastUpdatedBy: actorId,
-          updatedAt: serverTimestamp(),
-        });
+        await patchRemoteEvent(
+          {
+            [`waitlist/${player.id}`]: null,
+            lastUpdatedBy: actorId,
+            updatedAt: Date.now(),
+          },
+          'Unable to delete pit lane entry. Please verify your admin session.',
+        );
       } catch (error) {
         console.error(error);
-        setShareStatus('Unable to delete pit lane entry. Please verify your Firebase permissions.');
+        setShareStatus('Unable to delete pit lane entry. Please verify your admin session.');
       }
     },
-    [getCurrentActorId, isFirebaseAvailable, waitingPlayers],
+    [getCurrentActorId, patchRemoteEvent, waitingPlayers],
   );
 
   const toggleParticipantCheckIn = useCallback(
@@ -699,7 +634,7 @@ export function useTournamentEvent(
       const actorId = getCurrentActorId();
       const pathPrefix = scope === 'players' ? 'participants' : 'waitlist';
 
-      if (!isFirebaseAvailable || !eventRef.current || !player.id) {
+      if (isLocalDevelopmentMode() || !player.id) {
         const setter = scope === 'players' ? setPlayers : setWaitingPlayers;
         setter((current) =>
           current.map((entry, currentIndex) =>
@@ -717,19 +652,22 @@ export function useTournamentEvent(
       }
 
       try {
-        await update(eventRef.current, {
-          [`${pathPrefix}/${player.id}/checkedIn`]: nextCheckedIn,
-          [`${pathPrefix}/${player.id}/updatedAt`]: serverTimestamp(),
-          [`${pathPrefix}/${player.id}/lastUpdatedBy`]: actorId,
-          lastUpdatedBy: actorId,
-          updatedAt: serverTimestamp(),
-        });
+        await patchRemoteEvent(
+          {
+            [`${pathPrefix}/${player.id}/checkedIn`]: nextCheckedIn,
+            [`${pathPrefix}/${player.id}/updatedAt`]: Date.now(),
+            [`${pathPrefix}/${player.id}/lastUpdatedBy`]: actorId,
+            lastUpdatedBy: actorId,
+            updatedAt: Date.now(),
+          },
+          'Unable to update check-in status.',
+        );
       } catch (error) {
         console.error(error);
         setShareStatus('Unable to update check-in status.');
       }
     },
-    [getCurrentActorId, isFirebaseAvailable, players, waitingPlayers],
+    [getCurrentActorId, patchRemoteEvent, players, waitingPlayers],
   );
 
   const resetBracket = useCallback(async () => {
@@ -740,26 +678,29 @@ export function useTournamentEvent(
     setRaceHistory([]);
     setIsShufflingRoster(false);
 
-    if (!isFirebaseAvailable || !eventRef.current) {
+    if (isLocalDevelopmentMode()) {
       return;
     }
 
     try {
-      await update(eventRef.current, {
-        rosterOrder: [],
-        isRosterFinalized: false,
-        registrationStatus: getEventRegistrationStatus(players.length, MAX_PLAYERS, false),
-        lockedAt: null,
-        stageResults: createEmptyStageResults(),
-        raceHistory: [],
-        lastUpdatedBy: getCurrentActorId(),
-        updatedAt: serverTimestamp(),
-      });
+      await patchRemoteEvent(
+        {
+          rosterOrder: [],
+          isRosterFinalized: false,
+          registrationStatus: getEventRegistrationStatus(players.length, MAX_PLAYERS, false),
+          lockedAt: null,
+          stageResults: createEmptyStageResults(),
+          raceHistory: [],
+          lastUpdatedBy: getCurrentActorId(),
+          updatedAt: Date.now(),
+        },
+        'Failed to reset stage data.',
+      );
     } catch (error) {
       console.error(error);
       setShareStatus('Failed to reset stage data.');
     }
-  }, [getCurrentActorId, isFirebaseAvailable, players.length]);
+  }, [getCurrentActorId, patchRemoteEvent, players.length]);
 
   const resetEvent = useCallback(async () => {
     setPlayers([]);
@@ -771,28 +712,31 @@ export function useTournamentEvent(
     setRaceHistory([]);
     setIsShufflingRoster(false);
 
-    if (!isFirebaseAvailable || !eventRef.current) {
+    if (isLocalDevelopmentMode()) {
       return;
     }
 
     try {
-      await update(eventRef.current, {
-        participants: null,
-        waitlist: null,
-        rosterOrder: [],
-        isRosterFinalized: false,
-        registrationStatus: 'open',
-        lockedAt: null,
-        stageResults: createEmptyStageResults(),
-        raceHistory: [],
-        lastUpdatedBy: getCurrentActorId(),
-        updatedAt: serverTimestamp(),
-      });
+      await patchRemoteEvent(
+        {
+          participants: null,
+          waitlist: null,
+          rosterOrder: [],
+          isRosterFinalized: false,
+          registrationStatus: 'open',
+          lockedAt: null,
+          stageResults: createEmptyStageResults(),
+          raceHistory: [],
+          lastUpdatedBy: getCurrentActorId(),
+          updatedAt: Date.now(),
+        },
+        'Failed to reset all tournament data.',
+      );
     } catch (error) {
       console.error(error);
       setShareStatus('Failed to reset all tournament data.');
     }
-  }, [getCurrentActorId, isFirebaseAvailable]);
+  }, [getCurrentActorId, patchRemoteEvent]);
 
   const submitRaceResult = useCallback(
     (
@@ -879,17 +823,17 @@ export function useTournamentEvent(
       setStageResults(currentStageResults);
       setRaceHistory(nextRaceHistory);
 
-      if (isFirebaseAvailable && eventRef.current) {
+      if (!isLocalDevelopmentMode()) {
         const actorId = getCurrentActorId();
-        void update(eventRef.current, {
-          stageResults: currentStageResults,
-          raceHistory: nextRaceHistory,
-          lastUpdatedBy: actorId,
-          updatedAt: serverTimestamp(),
-        }).catch((error) => {
-          console.error(error);
-          setShareStatus('Failed to sync stage state.');
-        });
+        void patchRemoteEvent(
+          {
+            stageResults: currentStageResults,
+            raceHistory: nextRaceHistory,
+            lastUpdatedBy: actorId,
+            updatedAt: Date.now(),
+          },
+          'Failed to sync stage state.',
+        );
       }
 
       const nextTournament = buildTournamentStages(
@@ -917,9 +861,9 @@ export function useTournamentEvent(
     },
     [
       getCurrentActorId,
-      isFirebaseAvailable,
       isRosterFinalized,
       orderedEntrants,
+      patchRemoteEvent,
       raceHistory,
       stageResults,
       preset.championHeading,
@@ -937,21 +881,21 @@ export function useTournamentEvent(
     setStageResults(cloneStageResults(previousEntry.previousStageResults));
     setRaceHistory(nextRaceHistory);
 
-    if (isFirebaseAvailable && eventRef.current) {
+    if (!isLocalDevelopmentMode()) {
       const actorId = getCurrentActorId();
-      void update(eventRef.current, {
-        stageResults: previousEntry.previousStageResults,
-        raceHistory: nextRaceHistory,
-        lastUpdatedBy: actorId,
-        updatedAt: serverTimestamp(),
-      }).catch((error) => {
-        console.error(error);
-        setShareStatus('Failed to undo the last result.');
-      });
+      void patchRemoteEvent(
+        {
+          stageResults: previousEntry.previousStageResults,
+          raceHistory: nextRaceHistory,
+          lastUpdatedBy: actorId,
+          updatedAt: Date.now(),
+        },
+        'Failed to undo the last result.',
+      );
     }
 
     return true;
-  }, [getCurrentActorId, isFirebaseAvailable, isRosterFinalized, raceHistory]);
+  }, [getCurrentActorId, isRosterFinalized, patchRemoteEvent, raceHistory]);
 
   const isRosterFull = useMemo(() => players.length >= MAX_PLAYERS, [players.length]);
   const shouldQueueSignup = useMemo(() => registrationStatus === 'full', [registrationStatus]);

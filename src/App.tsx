@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ADMIN_PATH,
   BUILDING_CONFIGS,
-  MAX_PLAYERS,
   ROOT_PATH,
 } from './constants';
 import { AdminGateModal } from './components/AdminGateModal';
@@ -11,77 +10,9 @@ import { BuildingEventView } from './components/BuildingEventView';
 import { BuildingSelectionModal } from './components/BuildingSelectionModal';
 import { RoomingKosMotionPreview } from './components/RoomingKosMotionPreview';
 import { SpireEventView } from './components/spire/SpireEventView';
-import { isSeededTestPlayer, loadPersistedEventState, persistEventState } from './hooks/tournament/state';
 import { useAdminSession } from './hooks/useAdminSession';
-import { isLocalDevelopmentMode } from './lib/adminAccess';
 import { signInAdminWithPin, signOutAdmin } from './lib/adminSession';
-import type { BuildingConfig, BuildingKey, PersistedEventState, PlayerRecord, ViewMode } from './types';
-import { createEmptyStageResults } from './utils/bracket';
-import { getEventRegistrationStatus } from './utils/registration';
-
-const SWANSTON_TEST_NAMES = [
-  'Alex',
-  'Ben',
-  'Chloe',
-  'Daniel',
-  'Emma',
-  'Finn',
-  'Grace',
-  'Harry',
-  'Isla',
-  'Jack',
-  'Katie',
-  'Leo',
-  'Mia',
-  'Noah',
-  'Olivia',
-  'Sam',
-] as const;
-
-function createSeedPlayers(
-  buildingKey: BuildingKey,
-  names: readonly string[],
-) {
-  return names.map((name, index) => ({
-    id: `seed-${buildingKey}-${index + 1}`,
-    name,
-    nickname: '',
-    teamTag: '',
-    createdAt: Date.now() + index,
-    updatedAt: Date.now() + index,
-    lastUpdatedBy: 'local-dev-seed',
-    checkedIn: false,
-  })) satisfies PlayerRecord[];
-}
-
-function createSeededEventState(players: PlayerRecord[]): PersistedEventState {
-  return {
-    players,
-    waitingPlayers: [],
-    rosterOrder: [],
-    isRosterFinalized: false,
-    stageResults: createEmptyStageResults(),
-    raceHistory: [],
-    registrationStatus: getEventRegistrationStatus(players.length, MAX_PLAYERS, false),
-    lockedAt: null,
-    updatedAt: Date.now(),
-  };
-}
-
-function canReplaceWithSeed(state: PersistedEventState | null) {
-  if (!state) {
-    return true;
-  }
-
-  const hasRealPlayers = state.players.some((player) => !isSeededTestPlayer(player));
-  const hasRealWaitingPlayers = state.waitingPlayers.some((player) => !isSeededTestPlayer(player));
-
-  if (hasRealPlayers || hasRealWaitingPlayers) {
-    return false;
-  }
-
-  return !state.isRosterFinalized && state.rosterOrder.length === 0 && state.raceHistory.length === 0;
-}
+import type { BuildingConfig, BuildingKey, ViewMode } from './types';
 
 type AppRoute =
   | { kind: 'root' }
@@ -147,24 +78,6 @@ export default function App() {
   const isAdminMode = adminSession.isAdmin;
 
   const route = useMemo(() => resolveRoute(pathname), [pathname]);
-
-  useEffect(() => {
-    if (!isLocalDevelopmentMode()) {
-      return;
-    }
-
-    const swanstonEventId = BUILDING_CONFIGS.swanston.eventId;
-    const existingState = loadPersistedEventState(swanstonEventId);
-
-    if (!canReplaceWithSeed(existingState)) {
-      return;
-    }
-
-    persistEventState(
-      swanstonEventId,
-      createSeededEventState(createSeedPlayers('swanston', SWANSTON_TEST_NAMES)),
-    );
-  }, []);
 
   const navigateToPath = useCallback(
     (

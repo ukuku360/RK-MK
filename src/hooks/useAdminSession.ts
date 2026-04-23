@@ -1,4 +1,3 @@
-import { getIdTokenResult, onIdTokenChanged } from 'firebase/auth';
 import { useEffect, useState } from 'react';
 import {
   hasLocalDevelopmentAdminSession,
@@ -6,7 +5,10 @@ import {
   LOCAL_DEV_ADMIN_UID,
   subscribeToLocalDevelopmentAdminSession,
 } from '../lib/adminAccess';
-import { getFirebaseAuth, isFirebaseConfigured } from '../lib/firebase';
+import {
+  getStoredAdminSessionPayload,
+  subscribeToAdminSession,
+} from '../lib/adminSession';
 
 interface AdminSessionState {
   isLoading: boolean;
@@ -39,43 +41,19 @@ export function useAdminSession() {
       return subscribeToLocalDevelopmentAdminSession(syncLocalSession);
     }
 
-    if (!isFirebaseConfigured()) {
+    const syncSession = () => {
+      const payload = getStoredAdminSessionPayload();
+      const isAdmin = payload?.admin === true;
+
       setState({
         isLoading: false,
-        isAdmin: false,
-        uid: null,
+        isAdmin,
+        uid: isAdmin ? payload?.uid || 'rk-events-admin' : null,
       });
-      return;
-    }
+    };
 
-    const auth = getFirebaseAuth();
-
-    return onIdTokenChanged(auth, async (user) => {
-      if (!user) {
-        setState({
-          isLoading: false,
-          isAdmin: false,
-          uid: null,
-        });
-        return;
-      }
-
-      try {
-        const tokenResult = await getIdTokenResult(user);
-        setState({
-          isLoading: false,
-          isAdmin: tokenResult.claims.admin === true,
-          uid: user.uid,
-        });
-      } catch (error) {
-        console.error(error);
-        setState({
-          isLoading: false,
-          isAdmin: false,
-          uid: null,
-        });
-      }
-    });
+    syncSession();
+    return subscribeToAdminSession(syncSession);
   }, []);
 
   return state;

@@ -52,7 +52,7 @@ export function isLocalDevelopmentMode(env: AdminAccessEnv = import.meta.env) {
 }
 
 export function getDevelopmentAdminPassword(env: AdminAccessEnv = import.meta.env) {
-  return env.VITE_DEV_ADMIN_PIN?.trim() || 'admin';
+  return env.VITE_DEV_ADMIN_PIN?.trim() || '8888';
 }
 
 export function hasLocalDevelopmentAdminSession(options: AdminAccessOptions = {}) {

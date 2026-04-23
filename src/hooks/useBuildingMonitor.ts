@@ -1,26 +1,18 @@
 import { useEffect, useState } from 'react';
-import { onValue, ref, type DataSnapshot } from 'firebase/database';
-import { BUILDINGS, MAX_PLAYERS } from '../constants';
-import { getFirebaseDatabase, isFirebaseConfigured } from '../lib/firebase';
-import type { BuildingConfig, BuildingMonitorSnapshot, BuildingKey } from '../types';
+import { BUILDINGS, EVENT_STATE_STORAGE_PREFIX, MAX_PLAYERS } from '../constants';
+import type {
+  BuildingConfig,
+  BuildingMonitorSnapshot,
+  BuildingKey,
+  PersistedEventState,
+} from '../types';
 import { getEventRegistrationStatus } from '../utils/registration';
+import {
+  loadPersistedEventStateForMonitor,
+  PERSISTED_EVENT_STATE_CHANGE_EVENT,
+} from './tournament/state';
 
-function getSnapshotChildCount(snapshot: DataSnapshot | null) {
-  if (!snapshot?.exists()) {
-    return 0;
-  }
-
-  if (typeof snapshot.size === 'number') {
-    return snapshot.size;
-  }
-
-  let childCount = 0;
-  snapshot.forEach(() => {
-    childCount += 1;
-  });
-
-  return childCount;
-}
+const MONITOR_POLL_INTERVAL_MS = 4000;
 
 function createSnapshot(building: BuildingConfig): BuildingMonitorSnapshot {
   return {
@@ -34,6 +26,39 @@ function createSnapshot(building: BuildingConfig): BuildingMonitorSnapshot {
   };
 }
 
+function snapshotFromState(
+  building: BuildingConfig,
+  state: PersistedEventState | null,
+  connectionState: BuildingMonitorSnapshot['connectionState'],
+): BuildingMonitorSnapshot {
+  if (!state) {
+    return {
+      ...createSnapshot(building),
+      connectionState,
+    };
+  }
+
+  const playersCount = state.players.length;
+  const waitingPlayersCount = state.waitingPlayers.length;
+  const isRosterFinalized = Boolean(state.isRosterFinalized);
+
+  return {
+    ...createSnapshot(building),
+    playersCount,
+    waitingPlayersCount,
+    isRosterFinalized,
+    registrationStatus:
+      state.registrationStatus ||
+      getEventRegistrationStatus(playersCount, MAX_PLAYERS, isRosterFinalized),
+    updatedAt: typeof state.updatedAt === 'number' ? state.updatedAt : null,
+    connectionState,
+  };
+}
+
+export function createLocalMonitorSnapshot(building: BuildingConfig): BuildingMonitorSnapshot {
+  return snapshotFromState(building, loadPersistedEventStateForMonitor(building.eventId), 'offline');
+}
+
 function updateSnapshot(
   current: BuildingMonitorSnapshot[],
   key: BuildingKey,
@@ -44,120 +69,87 @@ function updateSnapshot(
   );
 }
 
+async function fetchBuildingSnapshot(building: BuildingConfig): Promise<BuildingMonitorSnapshot> {
+  const response = await fetch(`/api/events/state?eventId=${encodeURIComponent(building.eventId)}`);
+  const payload = (await response.json().catch(() => ({}))) as {
+    state?: PersistedEventState;
+  };
+
+  if (!response.ok || !payload.state) {
+    throw new Error('Unable to load building state.');
+  }
+
+  return snapshotFromState(building, payload.state, 'live');
+}
+
 export function useBuildingMonitor(buildings: readonly BuildingConfig[] = BUILDINGS) {
   const [snapshots, setSnapshots] = useState<BuildingMonitorSnapshot[]>(() =>
     buildings.map(createSnapshot),
   );
 
   useEffect(() => {
+    let isActive = true;
+    let pollTimeoutId: number | null = null;
+
     setSnapshots(buildings.map(createSnapshot));
 
-    if (!isFirebaseConfigured()) {
-      setSnapshots(
-        buildings.map((building) => ({
-          ...createSnapshot(building),
-          connectionState: 'offline',
-        })),
-      );
-      return;
+    const syncRemoteSnapshots = async () => {
+      try {
+        const nextSnapshots = await Promise.all(buildings.map(fetchBuildingSnapshot));
+
+        if (isActive) {
+          setSnapshots(nextSnapshots);
+        }
+      } catch (error) {
+        console.error(error);
+        if (isActive) {
+          setSnapshots((current) =>
+            buildings.reduce(
+              (next, building) =>
+                updateSnapshot(next, building.key, {
+                  connectionState: 'error',
+                }),
+              current,
+            ),
+          );
+        }
+      } finally {
+        if (isActive) {
+          pollTimeoutId = window.setTimeout(syncRemoteSnapshots, MONITOR_POLL_INTERVAL_MS);
+        }
+      }
+    };
+
+    const syncLocalSnapshots = () => {
+      setSnapshots(buildings.map(createLocalMonitorSnapshot));
+    };
+
+    const handleStorage = (event: StorageEvent) => {
+      if (!event.key?.startsWith(EVENT_STATE_STORAGE_PREFIX)) {
+        return;
+      }
+
+      syncLocalSnapshots();
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener(PERSISTED_EVENT_STATE_CHANGE_EVENT, syncLocalSnapshots);
+      window.addEventListener('storage', handleStorage);
     }
 
-    const db = getFirebaseDatabase();
-    const unsubscribers: Array<() => void> = [];
-
-    buildings.forEach((building) => {
-      const basePath = `events/${building.eventId}`;
-
-      unsubscribers.push(
-        onValue(
-          ref(db, `${basePath}/participants`),
-          (snapshot) => {
-            setSnapshots((current) =>
-              current.map((entry) =>
-                entry.building.key === building.key
-                  ? {
-                      ...entry,
-                      playersCount: getSnapshotChildCount(snapshot),
-                      registrationStatus: getEventRegistrationStatus(
-                        getSnapshotChildCount(snapshot),
-                        MAX_PLAYERS,
-                        entry.isRosterFinalized,
-                      ),
-                      connectionState: 'live',
-                    }
-                  : entry,
-              ),
-            );
-          },
-          () => {
-            setSnapshots((current) =>
-              updateSnapshot(current, building.key, {
-                connectionState: 'error',
-              }),
-            );
-          },
-        ),
-      );
-
-      unsubscribers.push(
-        onValue(
-          ref(db, `${basePath}/waitlist`),
-          (snapshot) => {
-            setSnapshots((current) =>
-              updateSnapshot(current, building.key, {
-                waitingPlayersCount: getSnapshotChildCount(snapshot),
-                connectionState: 'live',
-              }),
-            );
-          },
-          () => {
-            setSnapshots((current) =>
-              updateSnapshot(current, building.key, {
-                connectionState: 'error',
-              }),
-            );
-          },
-        ),
-      );
-
-      unsubscribers.push(
-        onValue(
-          ref(db, basePath),
-          (snapshot) => {
-            const isRosterFinalized = Boolean(snapshot.val()?.isRosterFinalized);
-            const updatedAt =
-              typeof snapshot.val()?.updatedAt === 'number' ? snapshot.val().updatedAt : null;
-            const storedRegistrationStatus = snapshot.val()?.registrationStatus;
-
-            setSnapshots((current) =>
-              current.map((entry) =>
-                entry.building.key === building.key
-                  ? {
-                      ...entry,
-                      isRosterFinalized,
-                      updatedAt,
-                      registrationStatus:
-                        storedRegistrationStatus ||
-                        getEventRegistrationStatus(entry.playersCount, MAX_PLAYERS, isRosterFinalized),
-                      connectionState: 'live',
-                    }
-                  : entry,
-              ),
-            );
-          },
-          () => {
-            setSnapshots((current) =>
-              updateSnapshot(current, building.key, {
-                connectionState: 'error',
-              }),
-            );
-          },
-        ),
-      );
-    });
+    void syncRemoteSnapshots();
 
     return () => {
-      unsubscribers.forEach((unsubscribe) => unsubscribe());
+      isActive = false;
+
+      if (pollTimeoutId) {
+        window.clearTimeout(pollTimeoutId);
+      }
+
+      if (typeof window !== 'undefined') {
+        window.removeEventListener(PERSISTED_EVENT_STATE_CHANGE_EVENT, syncLocalSnapshots);
+        window.removeEventListener('storage', handleStorage);
+      }
     };
   }, [buildings]);
 

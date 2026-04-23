@@ -1,5 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
-import { getAdminPin, getFirebaseAdminAuth, isFirebaseAdminConfigured } from '../_lib/firebaseAdmin';
+import { createAdminSessionToken, getAdminPin } from '../_lib/adminAuth.js';
 
 function safeCompare(left: string, right: string) {
   const leftBuffer = Buffer.from(left);
@@ -15,11 +15,6 @@ function safeCompare(left: string, right: string) {
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed.' });
-    return;
-  }
-
-  if (!isFirebaseAdminConfigured()) {
-    res.status(500).json({ error: 'Admin authentication is not configured on the server.' });
     return;
   }
 
@@ -43,10 +38,7 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const token = await getFirebaseAdminAuth().createCustomToken('rk-events-admin', {
-      admin: true,
-      role: 'race-control',
-    });
+    const token = createAdminSessionToken();
 
     res.status(200).json({ token });
   } catch (error) {

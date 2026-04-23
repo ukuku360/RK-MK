@@ -1,49 +1,23 @@
-import { BUILDINGS, EVENT_PRESET } from '../../src/config/eventConfig';
-import type { ParticipantRecord } from '../../src/types';
+import { EVENT_PRESET } from '../../src/config/eventConfig.js';
 import {
   applyParticipantRegistration,
   getEventRegistrationStatus,
-  normalizePlayerRecord,
   normalizeRegistrationInput,
-} from '../../src/utils/registration';
-import { getFirebaseAdminDatabase, isFirebaseAdminConfigured } from '../_lib/firebaseAdmin';
+} from '../../src/utils/registration.js';
+import {
+  eventDocumentToPersistedState,
+  isEventIdAllowed,
+  participantListToMap,
+  participantMapToList,
+  readEventDocument,
+  writeEventDocument,
+} from '../_lib/eventStore.js';
 
 const MAX_EVENT_PLAYERS = 16;
-
-function isEventIdAllowed(eventId: string) {
-  return BUILDINGS.some((building) => building.eventId === eventId);
-}
-
-function participantMapToList(value: unknown) {
-  if (!value || typeof value !== 'object') {
-    return [] as ParticipantRecord[];
-  }
-
-  return Object.entries(value as Record<string, unknown>).map(([id, participant]) =>
-    normalizePlayerRecord({
-      id,
-      ...(participant as Omit<ParticipantRecord, 'id'>),
-    }),
-  );
-}
-
-function participantListToMap(players: ParticipantRecord[]) {
-  return Object.fromEntries(
-    players.map((player) => {
-      const { id, ...payload } = player;
-      return [id as string, payload];
-    }),
-  );
-}
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed.' });
-    return;
-  }
-
-  if (!isFirebaseAdminConfigured()) {
-    res.status(500).json({ error: 'Registration API is not configured on the server.' });
     return;
   }
 
@@ -69,93 +43,65 @@ export default async function handler(req: any, res: any) {
     return;
   }
 
-  const db = getFirebaseAdminDatabase();
-  const eventRef = db.ref(`events/${eventId}`);
-  const participantId = db.ref(`events/${eventId}/participants`).push().key;
+  const participantId =
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const timestamp = Date.now();
 
-  if (!participantId) {
-    res.status(500).json({ error: 'Unable to allocate a registration slot.' });
-    return;
-  }
-
-  let duplicateDetected = false;
-  let lockedDetected = false;
-  let committedOutcome: 'active' | 'waitlist' | null = null;
-  let committedRegistrationStatus: ReturnType<typeof getEventRegistrationStatus> | null = null;
-
   try {
-    const transactionResult = await eventRef.transaction((currentValue) => {
-      const current =
-        currentValue && typeof currentValue === 'object'
-          ? (currentValue as Record<string, unknown>)
-          : {};
-      const isRosterFinalized = Boolean(current.isRosterFinalized);
-      const players = participantMapToList(current.participants);
-      const waitingPlayers = participantMapToList(current.waitlist);
-      const registration = applyParticipantRegistration({
-        players,
-        waitingPlayers,
-        input,
-        maxPlayers: MAX_EVENT_PLAYERS,
-        isRosterFinalized,
-        createId: () => participantId,
-        timestamp,
-        updatedBy: 'public-registration',
-      });
-
-      if (registration.outcome === 'duplicate' || registration.outcome === 'locked') {
-        duplicateDetected = registration.outcome === 'duplicate';
-        lockedDetected = registration.outcome === 'locked';
-        return;
-      }
-
-      const registrationStatus = getEventRegistrationStatus(
-        registration.players.length,
-        MAX_EVENT_PLAYERS,
-        isRosterFinalized,
-      );
-      committedOutcome = registration.outcome;
-      committedRegistrationStatus = registrationStatus;
-
-      return {
-        ...current,
-        title: typeof current.title === 'string' ? current.title : EVENT_PRESET.title,
-        maxPlayers: MAX_EVENT_PLAYERS,
-        participants: participantListToMap(registration.players),
-        waitlist: participantListToMap(registration.waitingPlayers),
-        registrationStatus,
-        lockedAt:
-          isRosterFinalized && typeof current.lockedAt === 'number' ? current.lockedAt : null,
-        updatedAt: timestamp,
-        lastUpdatedBy: 'public-registration',
-      };
+    const current = await readEventDocument(eventId, EVENT_PRESET.title);
+    const isRosterFinalized = Boolean(current.isRosterFinalized);
+    const players = participantMapToList(current.participants);
+    const waitingPlayers = participantMapToList(current.waitlist);
+    const registration = applyParticipantRegistration({
+      players,
+      waitingPlayers,
+      input,
+      maxPlayers: MAX_EVENT_PLAYERS,
+      isRosterFinalized,
+      createId: () => participantId,
+      timestamp,
+      updatedBy: 'public-registration',
     });
 
-    if (duplicateDetected) {
+    if (registration.outcome === 'duplicate') {
       res.status(409).json({ error: 'This driver is already registered.' });
       return;
     }
 
-    if (lockedDetected) {
+    if (registration.outcome === 'locked') {
       res.status(409).json({ error: 'Registrations are locked for this building.' });
       return;
     }
 
-    if (!transactionResult.committed || !committedOutcome || !committedRegistrationStatus) {
-      res.status(500).json({ error: 'Registration could not be completed.' });
-      return;
-    }
+    const registrationStatus = getEventRegistrationStatus(
+      registration.players.length,
+      MAX_EVENT_PLAYERS,
+      isRosterFinalized,
+    );
+    const nextDocument = await writeEventDocument(eventId, {
+      ...current,
+      title: current.title || EVENT_PRESET.title,
+      maxPlayers: MAX_EVENT_PLAYERS,
+      participants: participantListToMap(registration.players),
+      waitlist: participantListToMap(registration.waitingPlayers),
+      registrationStatus,
+      lockedAt: isRosterFinalized && typeof current.lockedAt === 'number' ? current.lockedAt : null,
+      updatedAt: timestamp,
+      lastUpdatedBy: 'public-registration',
+    });
 
     const message =
-      committedOutcome === 'waitlist'
+      registration.outcome === 'waitlist'
         ? 'Grid full. Driver added to Pit Lane.'
         : 'Driver added to the grid.';
 
     res.status(200).json({
-      outcome: committedOutcome,
-      registrationStatus: committedRegistrationStatus,
+      outcome: registration.outcome,
+      registrationStatus,
       message,
+      state: eventDocumentToPersistedState(nextDocument),
     });
   } catch (error) {
     console.error(error);

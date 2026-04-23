@@ -26,11 +26,11 @@ describe('getAdminPin', () => {
     expect(getAdminPin()).toBe('super-secret');
   });
 
-  it('falls back to admin outside production when no pin is configured', () => {
+  it('falls back to 8888 outside production when no pin is configured', () => {
     delete process.env.EVENT_ADMIN_PIN;
     process.env.NODE_ENV = 'development';
 
-    expect(getAdminPin()).toBe('admin');
+    expect(getAdminPin()).toBe('8888');
   });
 
   it('requires an explicit pin in production', () => {

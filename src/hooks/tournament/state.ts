@@ -18,6 +18,7 @@ import {
 } from '../../utils/registration';
 
 export const MAX_RACE_HISTORY = 24;
+export const PERSISTED_EVENT_STATE_CHANGE_EVENT = 'rk-event-state-change';
 
 export function normalizeRosterEntry(entry: RosterEntry | null | undefined): RosterEntry {
   if (!entry || typeof entry === 'string') {
@@ -68,10 +69,14 @@ export function isSeededTestPlayer(player: PlayerRecord | null | undefined) {
     return false;
   }
 
+  const id = player.id || '';
   const name = player.name || '';
   const nickname = player.nickname || '';
+  const lastUpdatedBy = player.lastUpdatedBy || '';
 
   return (
+    id.startsWith('seed-') ||
+    lastUpdatedBy === 'local-dev-seed' ||
     (/^Test Player \d+$/.test(name) && nickname === 'Test tag') ||
     /^Demo Player \d+$/.test(name)
   );
@@ -234,18 +239,25 @@ export function normalizeRaceHistory(raceHistory: unknown): RaceHistory {
     .slice(-MAX_RACE_HISTORY);
 }
 
-export function sanitizePersistedState(state: PersistedEventState): PersistedEventState {
-  const nextPlayers = state.players
+export function sanitizePersistedState(
+  state: PersistedEventState,
+): PersistedEventState {
+  const rawPlayers = Array.isArray(state.players) ? state.players : [];
+  const rawWaitingPlayers = Array.isArray(state.waitingPlayers) ? state.waitingPlayers : [];
+  const rawRosterOrder = Array.isArray(state.rosterOrder) ? state.rosterOrder : [];
+  const nextPlayers = rawPlayers
     .map((player) => normalizePlayerRecord(player))
     .filter((player) => !isSeededTestPlayer(player));
-  const nextWaitingPlayers = state.waitingPlayers
+  const nextWaitingPlayers = rawWaitingPlayers
     .map((player) => normalizePlayerRecord(player))
     .filter((player) => !isSeededTestPlayer(player));
-  const nextRosterOrder = Array.isArray(state.rosterOrder)
-    ? state.rosterOrder.map((entry) => normalizeRosterEntry(entry))
-    : [];
+  const nextRosterOrder = rawRosterOrder.map((entry) => normalizeRosterEntry(entry));
+  const removedSeededPlayers =
+    nextPlayers.length !== rawPlayers.length || nextWaitingPlayers.length !== rawWaitingPlayers.length;
   const registrationStatus =
-    state.registrationStatus ||
+    !removedSeededPlayers && state.registrationStatus
+      ? state.registrationStatus
+      :
     getEventRegistrationStatus(nextPlayers.length, MAX_PLAYERS, Boolean(state.isRosterFinalized));
   const lockedAt = typeof state.lockedAt === 'number' ? state.lockedAt : null;
   const nextStageResults = state.isRosterFinalized
@@ -267,9 +279,8 @@ export function sanitizePersistedState(state: PersistedEventState): PersistedEve
 
   if (
     !state.isRosterFinalized ||
-    nextPlayers.length !== state.players.length ||
-    nextWaitingPlayers.length !== state.waitingPlayers.length ||
-    nextRosterOrder.length !== state.rosterOrder.length
+    removedSeededPlayers ||
+    nextRosterOrder.length !== rawRosterOrder.length
   ) {
     return {
       ...sanitizedState,
@@ -297,9 +308,32 @@ export function loadPersistedEventState(eventId: string): PersistedEventState | 
   }
 }
 
+export function loadPersistedEventStateForMonitor(eventId: string): PersistedEventState | null {
+  const rawState = localStorage.getItem(`${EVENT_STATE_STORAGE_PREFIX}${eventId}`);
+
+  if (!rawState) {
+    return null;
+  }
+
+  try {
+    return sanitizePersistedState(JSON.parse(rawState) as PersistedEventState);
+  } catch (error) {
+    console.error(error);
+    return null;
+  }
+}
+
 export function persistEventState(eventId: string, state: PersistedEventState) {
   localStorage.setItem(
     `${EVENT_STATE_STORAGE_PREFIX}${eventId}`,
     JSON.stringify(state),
   );
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent(PERSISTED_EVENT_STATE_CHANGE_EVENT, {
+        detail: { eventId },
+      }),
+    );
+  }
 }

@@ -45,7 +45,7 @@ export function BuildingEventView({
   onLogout,
 }: BuildingEventViewProps) {
   const preset = getEventPreset(building);
-  const tournament = useTournamentEvent(building.eventId, preset, building.brandVariant);
+  const tournament = useTournamentEvent(building.eventId, preset);
   const profileCard = useProfileCard();
   const celebration = useCelebration();
 

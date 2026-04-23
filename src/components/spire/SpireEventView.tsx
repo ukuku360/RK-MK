@@ -1,6 +1,4 @@
 import { startTransition, useEffect, useMemo, useRef, useState } from 'react';
-import roomIllustration from '../../assets/branding/spire/illustrations/room.svg';
-import walkIllustration from '../../assets/branding/spire/illustrations/icon-walk.svg';
 import { getEventPreset, MAX_PLAYERS } from '../../constants';
 import { useCelebration } from '../../hooks/useCelebration';
 import { useProfileCard } from '../../hooks/useProfileCard';
@@ -43,7 +41,7 @@ export function SpireEventView({
   onLogout,
 }: SpireEventViewProps) {
   const preset = getEventPreset(building);
-  const tournament = useTournamentEvent(building.eventId, preset, building.brandVariant);
+  const tournament = useTournamentEvent(building.eventId, preset);
   const profileCard = useProfileCard();
   const celebration = useCelebration();
 
@@ -454,32 +452,7 @@ export function SpireEventView({
             )}
           </div>
 
-          {currentView === 'public' ? (
-            <aside className="spire-secondary-column spire-secondary-column-public">
-              <article className="spire-marketing-card">
-                <div className="spire-marketing-card-head">
-                  <p>Room presence</p>
-                  <strong>Quiet, bright, premium</strong>
-                </div>
-                <img src={roomIllustration} alt="" />
-                <p>
-                  Spire gets its own softer layout treatment: less noise, darker moss framing, and
-                  stronger editorial spacing.
-                </p>
-              </article>
-              <article className="spire-marketing-card">
-                <div className="spire-marketing-card-head">
-                  <p>Resident route</p>
-                  <strong>Fast to join</strong>
-                </div>
-                <img src={walkIllustration} alt="" />
-                <p>
-                  Share the link, lock the resident list, then move directly into qualifier entry
-                  and the final podium flow.
-                </p>
-              </article>
-            </aside>
-          ) : (
+          {currentView === 'admin' ? (
             <div className="spire-secondary-column spire-secondary-column-admin">
               <BracketPanel
                 entrants={entrants}
@@ -513,7 +486,7 @@ export function SpireEventView({
                 onScroll={() => profileCard.hideProfileCard(true)}
               />
             </div>
-          )}
+          ) : null}
         </div>
       </main>
     </>

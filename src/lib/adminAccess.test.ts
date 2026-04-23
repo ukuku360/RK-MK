@@ -40,12 +40,12 @@ describe('admin access helpers', () => {
     ).toBe(false);
   });
 
-  it('defaults the development admin password to admin', () => {
+  it('defaults the development admin password to 8888', () => {
     expect(
       getDevelopmentAdminPassword({
         DEV: true,
       }),
-    ).toBe('admin');
+    ).toBe('8888');
 
     expect(
       getDevelopmentAdminPassword({

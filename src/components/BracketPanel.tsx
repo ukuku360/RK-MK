@@ -9,7 +9,6 @@ import type {
   TournamentStage,
 } from '../types';
 import { makeProfileCardData } from '../utils/profile';
-import { shortenPlayerName } from '../utils/text';
 
 interface BracketPanelProps {
   entrants: PlayerRecord[];
@@ -64,23 +63,6 @@ function getStageStatusText(stage: TournamentStage, isRosterFinalized: boolean) 
   }
 
   return `Next up: Race ${stage.completedStandardRaceCount + 1}.`;
-}
-
-function getRaceSummary(slot: StageRaceSlot, entrants: PlayerRecord[]) {
-  if (!slot.result) {
-    if (slot.kind === 'tiebreak' && slot.tiebreakBand) {
-      return `Resolve ranks ${slot.tiebreakBand.startRank}-${slot.tiebreakBand.endRank}`;
-    }
-
-    return 'Ranking not entered yet';
-  }
-
-  return slot.result.finishingOrder
-    .map((entrantIndex, index) => {
-      const player = entrants[entrantIndex];
-      return `${index + 1}. ${player && !player.empty ? shortenPlayerName(player.name, 12) : 'TBD'}`;
-    })
-    .join(' / ');
 }
 
 function getWinnerLabel(stage: TournamentStage, entrants: PlayerRecord[]) {
@@ -284,15 +266,14 @@ export function BracketPanel({
                               }
                             >
                               <span className="stage-race-label-wrap">
-                                <span className="stage-race-label">{slot.label}</span>
+                                <span className="stage-race-label">
+                                  {slot.kind === 'standard' ? slot.label.toUpperCase() : slot.label}
+                                </span>
                                 {slot.kind === 'tiebreak' && slot.tiebreakBand ? (
                                   <span className="stage-race-meta">
                                     Ranks {slot.tiebreakBand.startRank}-{slot.tiebreakBand.endRank}
                                   </span>
                                 ) : null}
-                              </span>
-                              <span className="stage-race-summary">
-                                {getRaceSummary(slot, entrants)}
                               </span>
                             </button>
                           ))}

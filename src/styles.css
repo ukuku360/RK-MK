@@ -4166,9 +4166,7 @@ body.spire-route .bracket-progress-title {
 body.spire-route .registration-status-note,
 body.spire-route .event-summary-footnote,
 body.spire-route .match-score-error,
-body.spire-route .placeholder,
-body.spire-route .spire-share-status,
-body.spire-route .spire-podium-share-status {
+body.spire-route .placeholder {
   color: var(--spire-ink-soft);
 }
 
@@ -5126,7 +5124,7 @@ body.spire-route .shuffle-subtext {
 
 .spire-content-grid {
   display: grid;
-  grid-template-columns: minmax(0, 0.96fr) minmax(320px, 0.68fr);
+  grid-template-columns: 1fr;
   gap: 20px;
   align-items: start;
 }

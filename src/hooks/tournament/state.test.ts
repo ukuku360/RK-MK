@@ -69,4 +69,23 @@ describe('tournament state helpers', () => {
     expect(sanitized.stageResults).toEqual(createEmptyStageResults());
     expect(sanitized.raceHistory).toEqual([]);
   });
+
+  it('removes seeded players from persisted local state', () => {
+    const seededPlayers = Array.from({ length: 16 }, (_, index) => ({
+      id: `seed-swanston-${index + 1}`,
+      name: `Resident ${index + 1}`,
+      nickname: '',
+      teamTag: 'Spire',
+      createdAt: index + 1,
+      lastUpdatedBy: 'local-dev-seed',
+    }));
+    const state = createPersistedState({
+      players: seededPlayers,
+      rosterOrder: [],
+      isRosterFinalized: false,
+      registrationStatus: 'full',
+    });
+
+    expect(sanitizePersistedState(state).players).toHaveLength(0);
+  });
 });

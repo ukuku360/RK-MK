@@ -45,7 +45,7 @@ export function getAdminPin() {
   }
 
   // Keep local development usable even when the server env is not wired yet.
-  return 'admin';
+  return '8888';
 }
 
 export function isFirebaseAdminConfigured() {
