@@ -1,9 +1,11 @@
-import roomingKosBrandmark from '../../ROOMINGKOS BRANDING/Logo/PNG/RK_Brandmark_reduced_Rev_CMYK@4x.png';
+import roomingKosBrandmark from '../assets/branding/roomingkos/rk-brandmark.png';
+import { EVENT_PRESET } from '../constants';
 import { RoomingKosMotionPreview } from './RoomingKosMotionPreview';
 import type { ViewMode } from '../types';
 
 interface HeroHeaderProps {
   currentView: ViewMode;
+  headline: string;
   shareStatus: string;
   onShare: () => void;
   onViewChange: (view: ViewMode) => void;
@@ -11,6 +13,7 @@ interface HeroHeaderProps {
 
 export function HeroHeader({
   currentView,
+  headline,
   shareStatus,
   onShare,
   onViewChange,
@@ -18,22 +21,23 @@ export function HeroHeader({
   return (
     <header className="hero">
       <RoomingKosMotionPreview />
-      <h1>Swanston Table Tennis Tournament</h1>
+      <h1>{headline}</h1>
+      <p className="subtitle">{EVENT_PRESET.subtitle}</p>
       <div className="mode-switch" role="tablist" aria-label="View mode">
         <button
           type="button"
-          className={`mode-tab${currentView === 'warriors' ? ' active' : ''}`}
+          className={`mode-tab${currentView === 'public' ? ' active' : ''}`}
           role="tab"
-          aria-pressed={currentView === 'warriors'}
-          onClick={() => onViewChange('warriors')}
+          aria-pressed={currentView === 'public'}
+          onClick={() => onViewChange('public')}
         >
-          Warriors
+          {EVENT_PRESET.publicViewLabel}
         </button>
         <button
           type="button"
           className={`mode-tab mode-tab-admin${currentView === 'admin' ? ' active' : ''}`}
           role="tab"
-          aria-label="Admin"
+          aria-label={EVENT_PRESET.adminViewLabel}
           aria-pressed={currentView === 'admin'}
           onClick={() => onViewChange('admin')}
         >
@@ -44,7 +48,7 @@ export function HeroHeader({
       </div>
       <div className="hero-cta">
         <button type="button" onClick={onShare}>
-          Share This Event
+          Share Event Link
         </button>
         <p className="share-status" aria-live="polite">
           {shareStatus}

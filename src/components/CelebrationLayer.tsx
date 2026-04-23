@@ -1,15 +1,19 @@
 import type { RefObject } from 'react';
 import { useEffect } from 'react';
-import { PingPongRain } from './PingPongRain';
+import { EVENT_PRESET } from '../constants';
+import type { EventPreset } from '../types';
+import { RaceIconRain } from './RaceIconRain';
 
 interface CelebrationLayerProps {
   canvasRef: RefObject<HTMLCanvasElement | null>;
   championName: string | null;
+  preset?: EventPreset;
 }
 
 export function CelebrationLayer({
   canvasRef,
   championName,
+  preset = EVENT_PRESET,
 }: CelebrationLayerProps) {
   useEffect(() => {
     if (championName) {
@@ -62,10 +66,10 @@ export function CelebrationLayer({
             transition: 'opacity 0.35s ease, transform 0.45s cubic-bezier(0.34,1.56,0.64,1)',
           }}
         >
-          {championName ? `TROPHY ${championName}` : ''}
+          {championName ? `${preset.championAnnouncementPrefix} ${championName}` : ''}
         </div>
       </div>
-      <PingPongRain active={!!championName} />
+      <RaceIconRain active={!!championName} />
     </>
   );
 }

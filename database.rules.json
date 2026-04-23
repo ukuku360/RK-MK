@@ -3,7 +3,7 @@
     "events": {
       "$eventId": {
         ".read": true,
-        ".write": true,
+        ".write": "auth != null && auth.token.admin === true",
         "participants": {
           ".indexOn": ["createdAt"]
         },

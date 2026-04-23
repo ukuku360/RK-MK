@@ -1,531 +1,347 @@
-import { startTransition, useEffect, useMemo, useRef, useState } from 'react';
-import { MAX_PLAYERS } from './constants';
-import { BracketPanel } from './components/BracketPanel';
-import { CelebrationLayer } from './components/CelebrationLayer';
-import { EntriesPanel } from './components/EntriesPanel';
-import { EventSummary } from './components/EventSummary';
-import { HeroHeader } from './components/HeroHeader';
-import { MatchScoreModal } from './components/MatchScoreModal';
-import { PageOrnaments } from './components/PageOrnaments';
-import { ProfileCard } from './components/ProfileCard';
-import { RegistrationPanel } from './components/RegistrationPanel';
-import { useCelebration } from './hooks/useCelebration';
-import { useProfileCard } from './hooks/useProfileCard';
-import { useTournamentEvent } from './hooks/useTournamentEvent';
-import { ClickParticles } from './components/ClickParticles';
-import { AdminGateModal } from './components/AdminGateModal';
-import { PodiumPopup } from './components/PodiumPopup';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  createEmptyBracketEntrant,
-  getBracketEntrants,
-  getMatchParticipantIndexes,
-  getResolvedMatchWinner,
-  getThirdPlaceEntrantIndexes,
-  getWinnerKey,
-} from './utils/bracket';
-import { THIRD_PLACE_KEY } from './constants';
-import type { SelectionResult, ViewMode } from './types';
-import { createResultPosterPng } from './utils/resultShare';
+  ADMIN_PATH,
+  BUILDING_CONFIGS,
+  MAX_PLAYERS,
+  ROOT_PATH,
+} from './constants';
+import { AdminGateModal } from './components/AdminGateModal';
+import { AdminOverview } from './components/AdminOverview';
+import { BuildingEventView } from './components/BuildingEventView';
+import { BuildingSelectionModal } from './components/BuildingSelectionModal';
+import { RoomingKosMotionPreview } from './components/RoomingKosMotionPreview';
+import { SpireEventView } from './components/spire/SpireEventView';
+import { isSeededTestPlayer, loadPersistedEventState, persistEventState } from './hooks/tournament/state';
+import { useAdminSession } from './hooks/useAdminSession';
+import { isLocalDevelopmentMode } from './lib/adminAccess';
+import { signInAdminWithPin, signOutAdmin } from './lib/adminSession';
+import type { BuildingConfig, BuildingKey, PersistedEventState, PlayerRecord, ViewMode } from './types';
+import { createEmptyStageResults } from './utils/bracket';
+import { getEventRegistrationStatus } from './utils/registration';
 
-interface ScoreDialogState {
-  kind: 'match' | 'third-place';
-  title: string;
-  scoreKey: string;
-  leftPlayerName: string;
-  rightPlayerName: string;
-  clientX?: number;
-  clientY?: number;
-  matchLevel?: number;
-  matchIndex?: number;
+const SWANSTON_TEST_NAMES = [
+  'Alex',
+  'Ben',
+  'Chloe',
+  'Daniel',
+  'Emma',
+  'Finn',
+  'Grace',
+  'Harry',
+  'Isla',
+  'Jack',
+  'Katie',
+  'Leo',
+  'Mia',
+  'Noah',
+  'Olivia',
+  'Sam',
+] as const;
+
+function createSeedPlayers(
+  buildingKey: BuildingKey,
+  names: readonly string[],
+) {
+  return names.map((name, index) => ({
+    id: `seed-${buildingKey}-${index + 1}`,
+    name,
+    nickname: '',
+    teamTag: '',
+    createdAt: Date.now() + index,
+    updatedAt: Date.now() + index,
+    lastUpdatedBy: 'local-dev-seed',
+    checkedIn: false,
+  })) satisfies PlayerRecord[];
+}
+
+function createSeededEventState(players: PlayerRecord[]): PersistedEventState {
+  return {
+    players,
+    waitingPlayers: [],
+    rosterOrder: [],
+    isRosterFinalized: false,
+    stageResults: createEmptyStageResults(),
+    raceHistory: [],
+    registrationStatus: getEventRegistrationStatus(players.length, MAX_PLAYERS, false),
+    lockedAt: null,
+    updatedAt: Date.now(),
+  };
+}
+
+function canReplaceWithSeed(state: PersistedEventState | null) {
+  if (!state) {
+    return true;
+  }
+
+  const hasRealPlayers = state.players.some((player) => !isSeededTestPlayer(player));
+  const hasRealWaitingPlayers = state.waitingPlayers.some((player) => !isSeededTestPlayer(player));
+
+  if (hasRealPlayers || hasRealWaitingPlayers) {
+    return false;
+  }
+
+  return !state.isRosterFinalized && state.rosterOrder.length === 0 && state.raceHistory.length === 0;
+}
+
+type AppRoute =
+  | { kind: 'root' }
+  | { kind: 'admin' }
+  | { kind: 'building'; building: BuildingConfig }
+  | { kind: 'unknown' };
+
+type AdminGateTarget = 'building-admin' | 'route-admin';
+
+function normalizePathname(pathname: string) {
+  const normalized = pathname.replace(/\/+$/, '');
+  return normalized || ROOT_PATH;
+}
+
+function isBuildingKey(value: string): value is BuildingKey {
+  return value in BUILDING_CONFIGS;
+}
+
+function resolveRoute(pathname: string): AppRoute {
+  if (pathname === ROOT_PATH) {
+    return { kind: 'root' };
+  }
+
+  if (pathname === ADMIN_PATH) {
+    return { kind: 'admin' };
+  }
+
+  const maybeBuildingKey = pathname.replace(/^\//, '');
+
+  if (isBuildingKey(maybeBuildingKey)) {
+    return {
+      kind: 'building',
+      building: BUILDING_CONFIGS[maybeBuildingKey],
+    };
+  }
+
+  return { kind: 'unknown' };
+}
+
+function AdminAccessSplash({ isLoading }: { isLoading?: boolean }) {
+  return (
+    <main className="page admin-overview-page">
+      <section className="panel admin-overview-hero admin-overview-locked">
+        <RoomingKosMotionPreview />
+        <p className="admin-overview-kicker">Race Control</p>
+        <h1>{isLoading ? 'Checking Access' : 'Monitor Locked'}</h1>
+        <p className="admin-overview-subtitle">
+          {isLoading
+            ? 'Verifying your existing race control session.'
+            : 'Enter the admin password to access the cross-building overview for Swanston, Dudley, and Spire.'}
+        </p>
+      </section>
+    </main>
+  );
 }
 
 export default function App() {
-  const tournament = useTournamentEvent();
-  const profileCard = useProfileCard();
-  const celebration = useCelebration();
+  const [pathname, setPathname] = useState(() => normalizePathname(window.location.pathname));
+  const [currentView, setCurrentView] = useState<ViewMode>('public');
+  const [adminGateTarget, setAdminGateTarget] = useState<AdminGateTarget | null>(null);
+  const pendingBuildingViewRef = useRef<ViewMode | null>(null);
+  const adminSession = useAdminSession();
+  const isAdminMode = adminSession.isAdmin;
 
-  const [currentView, setCurrentView] = useState<ViewMode>('warriors');
-  const [isAdminMode, setIsAdminMode] = useState(false);
-  const [showAdminGate, setShowAdminGate] = useState(false);
-  const [showPodium, setShowPodium] = useState(false);
-  const [resultShareStatus, setResultShareStatus] = useState('');
-  const [isSharingResult, setIsSharingResult] = useState(false);
-  const isSharingResultRef = useRef(false);
-  const [isBracketFocus, setIsBracketFocus] = useState(
-    () => document.body.classList.contains('bracket-focus'),
+  const route = useMemo(() => resolveRoute(pathname), [pathname]);
+
+  useEffect(() => {
+    if (!isLocalDevelopmentMode()) {
+      return;
+    }
+
+    const swanstonEventId = BUILDING_CONFIGS.swanston.eventId;
+    const existingState = loadPersistedEventState(swanstonEventId);
+
+    if (!canReplaceWithSeed(existingState)) {
+      return;
+    }
+
+    persistEventState(
+      swanstonEventId,
+      createSeededEventState(createSeedPlayers('swanston', SWANSTON_TEST_NAMES)),
+    );
+  }, []);
+
+  const navigateToPath = useCallback(
+    (
+      path: string,
+      historyMode: 'push' | 'replace' = 'push',
+      nextBuildingView: ViewMode | null = null,
+    ) => {
+      pendingBuildingViewRef.current = nextBuildingView;
+
+      const nextUrl = new URL(window.location.href);
+      nextUrl.pathname = path;
+      nextUrl.search = '';
+      nextUrl.hash = '';
+      window.history[historyMode === 'replace' ? 'replaceState' : 'pushState']({}, '', nextUrl);
+      setPathname(normalizePathname(nextUrl.pathname));
+    },
+    [],
   );
-  const [stamps, setStamps] = useState<{ id: number; x: number; y: number }[]>([]);
-  const [scoreDialog, setScoreDialog] = useState<ScoreDialogState | null>(null);
-
-  const canUseAdminControls = isAdminMode && currentView === 'admin';
-  const canUseRosterControls = isAdminMode;
-
-  const countText = useMemo(() => {
-    if (tournament.isRosterFull) {
-      return `Entries: ${tournament.players.length} / ${MAX_PLAYERS} (full)`;
-    }
-
-    return `Entries: ${tournament.players.length} / ${MAX_PLAYERS}`;
-  }, [tournament.isRosterFull, tournament.players.length]);
 
   useEffect(() => {
-    document.body.classList.toggle('bracket-focus', isBracketFocus);
+    const handlePopState = () => {
+      setPathname(normalizePathname(window.location.pathname));
+    };
+
+    window.addEventListener('popstate', handlePopState);
 
     return () => {
-      document.body.classList.remove('bracket-focus');
+      window.removeEventListener('popstate', handlePopState);
     };
-  }, [isBracketFocus]);
+  }, []);
 
   useEffect(() => {
-    if (showPodium) {
+    const normalizedPath = normalizePathname(pathname);
+
+    if (normalizedPath !== pathname) {
+      navigateToPath(normalizedPath, 'replace');
       return;
     }
 
-    setResultShareStatus('');
-    setIsSharingResult(false);
-    isSharingResultRef.current = false;
-  }, [showPodium]);
+    if (route.kind === 'unknown') {
+      navigateToPath(ROOT_PATH, 'replace');
+    }
+  }, [navigateToPath, pathname, route.kind]);
 
   useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && profileCard.card.pinned) {
-        profileCard.hideProfileCard(true);
-        return;
-      }
+    if (route.kind === 'admin' && !adminSession.isLoading && !isAdminMode) {
+      setAdminGateTarget((current) => current ?? 'route-admin');
+    }
+  }, [adminSession.isLoading, isAdminMode, route.kind]);
 
-      if (event.key === 'Escape' && isBracketFocus) {
-        setIsBracketFocus(false);
-      }
-    };
+  useEffect(() => {
+    if (route.kind !== 'building') {
+      setCurrentView('public');
+      pendingBuildingViewRef.current = null;
+      return;
+    }
 
-    const handleDocumentClick = (event: MouseEvent) => {
-      if (!profileCard.card.pinned) {
-        return;
-      }
+    const nextView =
+      pendingBuildingViewRef.current === 'admin' && isAdminMode ? 'admin' : 'public';
 
-      const target = event.target instanceof Element ? event.target : null;
+    pendingBuildingViewRef.current = null;
+    setCurrentView(nextView);
+  }, [isAdminMode, route.kind === 'building' ? route.building.key : 'none']);
 
-      if (target?.closest('.player-row') || target?.closest('g.node-profileable')) {
-        return;
-      }
+  useEffect(() => {
+    if (route.kind === 'building') {
+      document.title = route.building.headline;
+      return;
+    }
 
-      profileCard.hideProfileCard(true);
-    };
+    if (route.kind === 'admin') {
+      document.title = 'RoomingKos Race Control Overview';
+      return;
+    }
 
-    const handleResize = () => {
-      profileCard.hideProfileCard(true);
-    };
+    document.title = 'RoomingKos Mario Kart Cup';
+  }, [route]);
 
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('resize', handleResize);
-    document.addEventListener('click', handleDocumentClick);
+  useEffect(() => {
+    const isSpireRoute =
+      route.kind === 'building' && route.building.brandVariant === 'spire';
+
+    document.body.classList.toggle('spire-route', isSpireRoute);
 
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('resize', handleResize);
-      document.removeEventListener('click', handleDocumentClick);
+      document.body.classList.remove('spire-route');
     };
-  }, [isBracketFocus, profileCard.card.pinned, profileCard.hideProfileCard]);
+  }, [route]);
 
-  function handleViewChange(nextView: ViewMode) {
-    if (nextView === 'admin' && !isAdminMode) {
-      setShowAdminGate(true);
-      return;
-    }
+  function handleAdminGateClose() {
+    const currentTarget = adminGateTarget;
+    setAdminGateTarget(null);
 
-    if (nextView !== 'admin' && isBracketFocus) {
-      setIsBracketFocus(false);
-    }
-
-    if (nextView !== 'admin') {
-      setScoreDialog(null);
-    }
-
-    profileCard.hideProfileCard(true);
-    startTransition(() => setCurrentView(nextView));
-  }
-
-  function handleAdminLoginSuccess() {
-    setShowAdminGate(false);
-    setIsAdminMode(true);
-    startTransition(() => setCurrentView('admin'));
-  }
-
-  function handleAdminLogout() {
-    setIsAdminMode(false);
-    setIsBracketFocus(false);
-    setScoreDialog(null);
-    profileCard.hideProfileCard(true);
-    startTransition(() => setCurrentView('warriors'));
-  }
-
-  function handleBracketDecisionResult(
-    result: SelectionResult,
-    clientX?: number,
-    clientY?: number,
-  ) {
-    if (result.kind === 'champion') {
-      celebration.triggerChampionCelebration(result.championName || 'Champion');
-      setTimeout(() => {
-        setShowPodium(true);
-      }, 3000);
-      return;
-    }
-
-    if (result.kind === 'winner') {
-      celebration.triggerWinnerConfetti(clientX, clientY);
-      if (clientX !== undefined && clientY !== undefined) {
-        const newId = Date.now();
-        setStamps((s) => [...s, { id: newId, x: clientX, y: clientY }]);
-        setTimeout(() => setStamps((s) => s.filter((stamp) => stamp.id !== newId)), 800);
-        
-        const svgElement = document.getElementById('bracketSvg');
-        if (svgElement) {
-          svgElement.classList.remove('shake-animation');
-          void svgElement.offsetWidth;
-          svgElement.classList.add('shake-animation');
-          setTimeout(() => svgElement.classList.remove('shake-animation'), 300);
-        }
-      }
+    if (route.kind === 'admin' && !isAdminMode && currentTarget === 'route-admin') {
+      navigateToPath(ROOT_PATH, 'replace');
     }
   }
 
-  const entrants = useMemo(() => {
-    const nextEntrants = getBracketEntrants(
-      tournament.players,
-      tournament.rosterOrder,
-      tournament.isRosterFinalized,
-    );
+  async function handleAdminLogin(pin: string) {
+    const target = adminGateTarget;
 
-    while (nextEntrants.length < MAX_PLAYERS) {
-      nextEntrants.push(createEmptyBracketEntrant());
-    }
+    await signInAdminWithPin(pin);
+    setAdminGateTarget(null);
 
-    return nextEntrants;
-  }, [tournament.isRosterFinalized, tournament.players, tournament.rosterOrder]);
-
-  function handleRequestMatchScore(
-    matchLevel: number,
-    matchIndex: number,
-    clientX?: number,
-    clientY?: number,
-  ) {
-    profileCard.hideProfileCard(true);
-
-    const participantIndexes = getMatchParticipantIndexes(
-      matchLevel,
-      matchIndex,
-      entrants,
-      tournament.matchWinners,
-    );
-
-    if (participantIndexes.length !== 2) {
+    if (target === 'route-admin') {
+      navigateToPath(ADMIN_PATH);
       return;
     }
 
-    const [leftIndex, rightIndex] = participantIndexes;
-    const leftPlayer = entrants[leftIndex];
-    const rightPlayer = entrants[rightIndex];
-
-    if (!leftPlayer || !rightPlayer || leftPlayer.empty || rightPlayer.empty) {
-      return;
-    }
-
-    const roundTitle =
-      matchLevel === 1
-        ? 'Round 1'
-        : matchLevel === 2
-          ? 'Quarterfinal'
-          : matchLevel === 3
-            ? 'Semifinal'
-            : 'Final';
-
-    setScoreDialog({
-      kind: 'match',
-      title: `${roundTitle} Match`,
-      scoreKey: getWinnerKey(matchLevel, matchIndex),
-      leftPlayerName: leftPlayer.name,
-      rightPlayerName: rightPlayer.name,
-      clientX,
-      clientY,
-      matchLevel,
-      matchIndex,
-    });
+    setCurrentView('admin');
   }
 
-  function handleRequestThirdPlaceScore(clientX?: number, clientY?: number) {
-    profileCard.hideProfileCard(true);
+  async function handleAdminLogout() {
+    await signOutAdmin();
+    setCurrentView('public');
 
-    const thirdPlaceEntrants = getThirdPlaceEntrantIndexes(entrants, tournament.matchWinners);
-    const [leftIndex, rightIndex] = thirdPlaceEntrants;
-
-    if (leftIndex === undefined || rightIndex === undefined) {
-      return;
-    }
-
-    const leftPlayer = entrants[leftIndex];
-    const rightPlayer = entrants[rightIndex];
-
-    if (!leftPlayer || !rightPlayer || leftPlayer.empty || rightPlayer.empty) {
-      return;
-    }
-
-    setScoreDialog({
-      kind: 'third-place',
-      title: '3rd Place Playoff',
-      scoreKey: THIRD_PLACE_KEY,
-      leftPlayerName: leftPlayer.name,
-      rightPlayerName: rightPlayer.name,
-      clientX,
-      clientY,
-    });
-  }
-
-  function handleSubmitScore(leftScore: number, rightScore: number) {
-    if (!scoreDialog) {
-      return;
-    }
-
-    const result =
-      scoreDialog.kind === 'match' && scoreDialog.matchLevel !== undefined && scoreDialog.matchIndex !== undefined
-        ? tournament.submitMatchScore(
-            scoreDialog.matchLevel,
-            scoreDialog.matchIndex,
-            leftScore,
-            rightScore,
-          )
-        : tournament.submitThirdPlaceScore(leftScore, rightScore);
-
-    const { clientX, clientY } = scoreDialog;
-    setScoreDialog(null);
-    handleBracketDecisionResult(result, clientX, clientY);
-  }
-
-  function handleUndoLastResult() {
-    profileCard.hideProfileCard(true);
-    setScoreDialog(null);
-    setShowPodium(false);
-    tournament.undoLastMatchResult();
-  }
-
-  const leftFinalistIndex = getResolvedMatchWinner(3, 0, entrants, tournament.matchWinners);
-  const rightFinalistIndex = getResolvedMatchWinner(3, 1, entrants, tournament.matchWinners);
-  const thirdPlaceEntrants = getThirdPlaceEntrantIndexes(entrants, tournament.matchWinners);
-  const secondPlaceIndex = tournament.championIndex === leftFinalistIndex ? rightFinalistIndex : leftFinalistIndex;
-  const thirdPlacePlayoffRequired = thirdPlaceEntrants.every((entrantIndex) => entrantIndex !== undefined);
-
-  const firstPlace = tournament.championIndex !== undefined ? entrants[tournament.championIndex] : undefined;
-  const secondPlace = secondPlaceIndex !== undefined ? entrants[secondPlaceIndex] : undefined;
-  const thirdPlace = tournament.matchWinners[THIRD_PLACE_KEY] !== undefined ? entrants[tournament.matchWinners[THIRD_PLACE_KEY]] : undefined;
-  const resultsReady =
-    tournament.championIndex !== undefined &&
-    (!thirdPlacePlayoffRequired || (thirdPlace !== undefined && !thirdPlace.empty));
-
-  async function handleShareResult() {
-    if (isSharingResultRef.current) {
-      return;
-    }
-
-    isSharingResultRef.current = true;
-    setResultShareStatus('Preparing result image...');
-    setIsSharingResult(true);
-
-    try {
-      const imageBlob = await createResultPosterPng(firstPlace, secondPlace, thirdPlace);
-      const filename = `roomingkos-result-${new Date().toISOString().slice(0, 10)}.png`;
-      const shareFile =
-        typeof File === 'function'
-          ? new File([imageBlob], filename, { type: 'image/png' })
-          : null;
-
-      if (
-        shareFile &&
-        navigator.share &&
-        (!navigator.canShare || navigator.canShare({ files: [shareFile] }))
-      ) {
-        try {
-          await navigator.share({
-            files: [shareFile],
-            title: 'RoomingKos Tournament Result',
-            text: 'Table tennis tournament result poster',
-          });
-          setResultShareStatus('Result image shared.');
-          return;
-        } catch (error) {
-          if (error instanceof Error && error.name === 'AbortError') {
-            setResultShareStatus('');
-            return;
-          }
-        }
-      }
-
-      if (
-        window.isSecureContext &&
-        navigator.clipboard &&
-        'ClipboardItem' in window
-      ) {
-        try {
-          await navigator.clipboard.write([
-            new window.ClipboardItem({
-              'image/png': imageBlob,
-            }),
-          ]);
-          setResultShareStatus('Result image copied to clipboard.');
-          return;
-        } catch (error) {
-          console.error(error);
-        }
-      }
-
-      const downloadUrl = URL.createObjectURL(imageBlob);
-      const downloadLink = document.createElement('a');
-      downloadLink.href = downloadUrl;
-      downloadLink.download = filename;
-      document.body.append(downloadLink);
-      downloadLink.click();
-      downloadLink.remove();
-      window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
-      setResultShareStatus('Result image downloaded as PNG.');
-    } catch (error) {
-      console.error(error);
-      setResultShareStatus('Unable to share the result image on this device.');
-    } finally {
-      isSharingResultRef.current = false;
-      setIsSharingResult(false);
+    if (route.kind === 'admin') {
+      navigateToPath(ROOT_PATH, 'replace');
     }
   }
 
   return (
     <>
-      <AdminGateModal 
-        visible={showAdminGate} 
-        onClose={() => setShowAdminGate(false)} 
-        onSuccess={handleAdminLoginSuccess} 
-      />
-      <PodiumPopup
-        visible={showPodium}
-        onClose={() => setShowPodium(false)}
-        firstPlace={firstPlace}
-        secondPlace={secondPlace}
-        thirdPlace={thirdPlace}
-        onShareResult={handleShareResult}
-        shareStatus={resultShareStatus}
-        isSharingResult={isSharingResult}
-      />
-      <MatchScoreModal
-        visible={Boolean(scoreDialog)}
-        title={scoreDialog?.title || 'Match'}
-        leftPlayerName={scoreDialog?.leftPlayerName || ''}
-        rightPlayerName={scoreDialog?.rightPlayerName || ''}
-        initialScore={scoreDialog ? tournament.matchScores[scoreDialog.scoreKey] : undefined}
-        onClose={() => setScoreDialog(null)}
-        onSubmit={handleSubmitScore}
-      />
-      <ClickParticles />
-      {stamps.map((stamp) => (
-        <div 
-          key={stamp.id} 
-          className="stamp-winner" 
-          style={{ left: stamp.x, top: stamp.y }}
-        >
-          WINNER
-        </div>
-      ))}
-      <CelebrationLayer
-        canvasRef={celebration.canvasRef}
-        championName={celebration.championName}
-      />
-      <ProfileCard
-        cardRef={profileCard.cardRef}
-        data={profileCard.card.data}
-        visible={profileCard.card.visible}
-        pinned={profileCard.card.pinned}
-        left={profileCard.card.left}
-        top={profileCard.card.top}
+      <AdminGateModal
+        visible={adminGateTarget !== null}
+        onClose={handleAdminGateClose}
+        onSubmitPin={handleAdminLogin}
       />
 
-      <main className="page">
-        <PageOrnaments />
-        <HeroHeader
-          currentView={currentView}
-          shareStatus={tournament.shareStatus}
-          onShare={tournament.shareEvent}
-          onViewChange={handleViewChange}
+      {route.kind === 'building' ? (
+        route.building.brandVariant === 'spire' ? (
+          <SpireEventView
+            key={route.building.key}
+            building={route.building}
+            currentView={currentView}
+            isAdminMode={isAdminMode}
+            onRequestAdminLogin={() => setAdminGateTarget('building-admin')}
+            onViewChange={setCurrentView}
+            onLogout={handleAdminLogout}
+          />
+        ) : (
+          <BuildingEventView
+            key={route.building.key}
+            building={route.building}
+            currentView={currentView}
+            isAdminMode={isAdminMode}
+            onRequestAdminLogin={() => setAdminGateTarget('building-admin')}
+            onViewChange={setCurrentView}
+            onLogout={handleAdminLogout}
+          />
+        )
+      ) : null}
+
+      {route.kind === 'root' ? (
+        <BuildingSelectionModal
+          onSelectBuilding={(building) => navigateToPath(building.path)}
+          onOpenAdmin={() => {
+            if (isAdminMode) {
+              navigateToPath(ADMIN_PATH);
+              return;
+            }
+
+            setAdminGateTarget('route-admin');
+          }}
         />
-        <EventSummary
-          showAdminControls={currentView === 'admin'}
-          isAdminMode={isAdminMode}
-          canUseAdminControls={canUseAdminControls}
-          onLogin={() => setShowAdminGate(true)}
-          onLogout={handleAdminLogout}
-          onReset={tournament.resetEvent}
-        />
+      ) : null}
 
-        <div className={`content${currentView !== 'admin' ? ' content-single' : ''}`}>
-          <div className="view-column">
-            {currentView === 'warriors' ? (
-              <div className="view-panel view-slot-grid warriors-layout" role="tabpanel">
-                <RegistrationPanel
-                  buttonText={tournament.shouldQueueSignup ? 'Join Waitlist' : 'Add Participant'}
-                  disabled={tournament.isShufflingRoster}
-                  onSubmit={tournament.submitParticipant}
-                />
-                <EntriesPanel
-                  players={tournament.players}
-                  waitingPlayers={tournament.waitingPlayers}
-                  countText={countText}
-                  canDelete={false}
-                  onDeletePlayer={tournament.deleteParticipant}
-                  onDeleteWaitingPlayer={tournament.deleteWaitingParticipant}
-                  getProfileHandlers={profileCard.getProfileHandlers}
-                />
-              </div>
-            ) : (
-              <section className="view-panel admin-view" role="tabpanel">
-                <div className="view-slot-grid admin-slot-grid">
-                  <EntriesPanel
-                    players={tournament.players}
-                    waitingPlayers={tournament.waitingPlayers}
-                    countText={countText}
-                    canDelete={canUseAdminControls}
-                    onDeletePlayer={tournament.deleteParticipant}
-                    onDeleteWaitingPlayer={tournament.deleteWaitingParticipant}
-                    getProfileHandlers={profileCard.getProfileHandlers}
-                  />
-                </div>
-              </section>
-            )}
-          </div>
-
-          {currentView === 'admin' ? (
-            <>
-              <BracketPanel
-                players={tournament.players}
-                rosterOrder={tournament.rosterOrder}
-                matchScores={tournament.matchScores}
-                matchWinners={tournament.matchWinners}
-                isRosterFinalized={tournament.isRosterFinalized}
-                isShufflingRoster={tournament.isShufflingRoster}
-                canUseRosterControls={canUseRosterControls}
-                isBracketFocus={isBracketFocus}
-                getProfileHandlers={profileCard.getProfileHandlers}
-                onDrawRoster={tournament.drawRoster}
-                onToggleFocus={() => {
-                  profileCard.hideProfileCard(true);
-                  setIsBracketFocus((current) => !current);
-                }}
-                canUndoLastResult={canUseRosterControls && tournament.matchHistory.length > 0}
-                onUndoLastResult={handleUndoLastResult}
-                resultsReady={resultsReady}
-                onOpenResults={() => setShowPodium(true)}
-                onRequestMatchScore={handleRequestMatchScore}
-                onRequestThirdPlaceScore={handleRequestThirdPlaceScore}
-                onScroll={() => profileCard.hideProfileCard(true)}
-              />
-            </>
-          ) : null}
-        </div>
-      </main>
+      {route.kind === 'admin' ? (
+        isAdminMode ? (
+          <AdminOverview
+            onOpenBuilding={(building) => navigateToPath(building.path, 'push', 'admin')}
+            onLogout={handleAdminLogout}
+          />
+        ) : (
+          <AdminAccessSplash isLoading={adminSession.isLoading} />
+        )
+      ) : null}
     </>
   );
 }
