@@ -4,6 +4,7 @@ import {
   buildTournamentStages,
   createEmptyBracketEntrant,
   createEmptyStageResults,
+  getGroupFinalistDecision,
 } from './bracket';
 
 function createPlayer(index: number): PlayerRecord {
@@ -71,6 +72,99 @@ describe('group stage helpers', () => {
     expect(tournament.groupStages[0].winnerIndex).toBe(1);
   });
 
+  it('announces the group finalist when the third standard race locks the group', () => {
+    const entrants = [createPlayer(0), createPlayer(1), createPlayer(2)];
+    const previousStageResults = createEmptyStageResults();
+    previousStageResults['group-a'] = [
+      {
+        kind: 'standard',
+        participantIndexes: [0, 1, 2],
+        finishingOrder: [0, 1, 2],
+      },
+      {
+        kind: 'standard',
+        participantIndexes: [0, 1, 2],
+        finishingOrder: [1, 0, 2],
+      },
+    ];
+    const nextStageResults = createEmptyStageResults();
+    nextStageResults['group-a'] = [
+      ...previousStageResults['group-a'],
+      {
+        kind: 'standard',
+        participantIndexes: [0, 1, 2],
+        finishingOrder: [1, 2, 0],
+      },
+    ];
+
+    const previousTournament = buildTournamentStages(entrants, previousStageResults, true);
+    const nextTournament = buildTournamentStages(entrants, nextStageResults, true);
+
+    expect(
+      getGroupFinalistDecision(
+        'group-a',
+        previousTournament.groupStages,
+        nextTournament.groupStages,
+        entrants,
+      ),
+    ).toEqual({
+      kind: 'group-finalist',
+      stageKey: 'group-a',
+      stageTitle: 'Group A',
+      finalistIndex: 1,
+      finalistName: 'Driver 1',
+    });
+  });
+
+  it('announces the group finalist again when an edited result changes the locked winner', () => {
+    const entrants = [createPlayer(0), createPlayer(1), createPlayer(2)];
+    const previousStageResults = createEmptyStageResults();
+    previousStageResults['group-a'] = [
+      {
+        kind: 'standard',
+        participantIndexes: [0, 1, 2],
+        finishingOrder: [0, 1, 2],
+      },
+      {
+        kind: 'standard',
+        participantIndexes: [0, 1, 2],
+        finishingOrder: [1, 0, 2],
+      },
+      {
+        kind: 'standard',
+        participantIndexes: [0, 1, 2],
+        finishingOrder: [1, 2, 0],
+      },
+    ];
+    const nextStageResults = createEmptyStageResults();
+    nextStageResults['group-a'] = [
+      ...previousStageResults['group-a'].slice(0, 2),
+      {
+        kind: 'standard',
+        participantIndexes: [0, 1, 2],
+        finishingOrder: [0, 2, 1],
+      },
+    ];
+
+    const previousTournament = buildTournamentStages(entrants, previousStageResults, true);
+    const nextTournament = buildTournamentStages(entrants, nextStageResults, true);
+
+    expect(
+      getGroupFinalistDecision(
+        'group-a',
+        previousTournament.groupStages,
+        nextTournament.groupStages,
+        entrants,
+      ),
+    ).toEqual({
+      kind: 'group-finalist',
+      stageKey: 'group-a',
+      stageTitle: 'Group A',
+      finalistIndex: 0,
+      finalistName: 'Driver 0',
+    });
+  });
+
   it('opens a tie-break when first place is tied in a group and resolves the finalist after it', () => {
     const entrants = [0, 1, 2, 3].map((index) => createPlayer(index));
     const stageResults = createEmptyStageResults();
@@ -116,6 +210,87 @@ describe('group stage helpers', () => {
     expect(resolvedTournament.finalStage.isReady).toBe(true);
     expect(resolvedTournament.finalStage.participantIndexes).toEqual([1]);
     expect(resolvedTournament.podium[0]).toBe(1);
+  });
+
+  it('waits for the tie-break before announcing a tied group finalist', () => {
+    const entrants = [0, 1, 2, 3].map((index) => createPlayer(index));
+    const previousStageResults = createEmptyStageResults();
+    previousStageResults['group-a'] = [
+      {
+        kind: 'standard',
+        participantIndexes: [0, 1, 2, 3],
+        finishingOrder: [0, 1, 2, 3],
+      },
+      {
+        kind: 'standard',
+        participantIndexes: [0, 1, 2, 3],
+        finishingOrder: [1, 2, 0, 3],
+      },
+    ];
+    const tiedStageResults = createEmptyStageResults();
+    tiedStageResults['group-a'] = [
+      ...previousStageResults['group-a'],
+      {
+        kind: 'standard',
+        participantIndexes: [0, 1, 2, 3],
+        finishingOrder: [3, 0, 1, 2],
+      },
+    ];
+    const resolvedStageResults = createEmptyStageResults();
+    resolvedStageResults['group-a'] = [
+      ...tiedStageResults['group-a'],
+      {
+        kind: 'tiebreak',
+        participantIndexes: [0, 1],
+        finishingOrder: [1, 0],
+        tiebreakBand: {
+          startRank: 1,
+          endRank: 2,
+          participantIndexes: [0, 1],
+        },
+      },
+    ];
+
+    const previousTournament = buildTournamentStages(entrants, previousStageResults, true);
+    const tiedTournament = buildTournamentStages(entrants, tiedStageResults, true);
+    const resolvedTournament = buildTournamentStages(entrants, resolvedStageResults, true);
+
+    expect(
+      getGroupFinalistDecision(
+        'group-a',
+        previousTournament.groupStages,
+        tiedTournament.groupStages,
+        entrants,
+      ),
+    ).toBeNull();
+    expect(
+      getGroupFinalistDecision(
+        'group-a',
+        tiedTournament.groupStages,
+        resolvedTournament.groupStages,
+        entrants,
+      ),
+    ).toEqual({
+      kind: 'group-finalist',
+      stageKey: 'group-a',
+      stageTitle: 'Group A',
+      finalistIndex: 1,
+      finalistName: 'Driver 1',
+    });
+  });
+
+  it('does not route final-stage decisions through the group finalist popup', () => {
+    const entrants = [createPlayer(0), createPlayer(1), createPlayer(2), createPlayer(3)];
+    const tournament = buildTournamentStages(entrants, createEmptyStageResults(), true);
+
+    expect(
+      getGroupFinalistDecision(
+        'final',
+        tournament.groupStages,
+        tournament.groupStages,
+        entrants,
+      ),
+    ).toBeNull();
   });
 
   it('resolves final podium ties without adding extra points', () => {

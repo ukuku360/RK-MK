@@ -3,7 +3,7 @@ import { getEventPreset, MAX_PLAYERS } from '../constants';
 import { useCelebration } from '../hooks/useCelebration';
 import { useProfileCard } from '../hooks/useProfileCard';
 import { useTournamentEvent } from '../hooks/useTournamentEvent';
-import type { BuildingConfig, StageRaceSlot, ViewMode } from '../types';
+import type { BuildingConfig, PlayerRecord, SelectionResult, StageRaceSlot, ViewMode } from '../types';
 import {
   getBracketEntrants,
   getStageTitle,
@@ -14,7 +14,9 @@ import { BracketPanel } from './BracketPanel';
 import { CelebrationLayer } from './CelebrationLayer';
 import { EntriesPanel } from './EntriesPanel';
 import { EventSummary } from './EventSummary';
+import { GroupFinalistPopup } from './GroupFinalistPopup';
 import { HeroHeader } from './HeroHeader';
+import { MarioEventSpotlight } from './MarioEventSpotlight';
 import { MatchScoreModal } from './MatchScoreModal';
 import { PodiumPopup } from './PodiumPopup';
 import { ProfileCard } from './ProfileCard';
@@ -25,6 +27,12 @@ interface RaceDialogState {
   title: string;
   clientX?: number;
   clientY?: number;
+}
+
+interface GroupFinalistDialogState {
+  stageTitle: string;
+  finalistName: string;
+  finalist?: PlayerRecord;
 }
 
 interface BuildingEventViewProps {
@@ -59,6 +67,8 @@ export function BuildingEventView({
   const bracketFocusScrollYRef = useRef(0);
   const [stamps, setStamps] = useState<{ id: number; x: number; y: number }[]>([]);
   const [scoreDialog, setScoreDialog] = useState<RaceDialogState | null>(null);
+  const [groupFinalistDialog, setGroupFinalistDialog] =
+    useState<GroupFinalistDialogState | null>(null);
 
   const canUseAdminControls = isAdminMode && currentView === 'admin';
   const canUseRosterControls = isAdminMode;
@@ -114,7 +124,9 @@ export function BuildingEventView({
 
       if (
         event.key === 'Escape' &&
-        document.querySelector('.stage-focus-modal-backdrop, .match-score-modal-backdrop')
+        document.querySelector(
+          '.stage-focus-modal-backdrop, .match-score-modal-backdrop, .group-finalist-popup-backdrop',
+        )
       ) {
         return;
       }
@@ -165,6 +177,7 @@ export function BuildingEventView({
 
     if (nextView !== 'admin') {
       setScoreDialog(null);
+      setGroupFinalistDialog(null);
     }
 
     profileCard.hideProfileCard(true);
@@ -174,13 +187,27 @@ export function BuildingEventView({
   function handleAdminLogout() {
     setIsBracketFocus(false);
     setScoreDialog(null);
+    setGroupFinalistDialog(null);
     profileCard.hideProfileCard(true);
     startTransition(() => onViewChange('public'));
     onLogout();
   }
 
+  function triggerRaceSaveFeedback(clientX?: number, clientY?: number) {
+    celebration.triggerWinnerConfetti(clientX, clientY);
+
+    if (clientX !== undefined && clientY !== undefined) {
+      const newId = Date.now();
+      setStamps((current) => [...current, { id: newId, x: clientX, y: clientY }]);
+      window.setTimeout(
+        () => setStamps((current) => current.filter((stamp) => stamp.id !== newId)),
+        800,
+      );
+    }
+  }
+
   function handleBracketDecisionResult(
-    result: { kind: 'winner' | 'champion' | 'noop'; championName?: string },
+    result: SelectionResult,
     clientX?: number,
     clientY?: number,
   ) {
@@ -192,17 +219,18 @@ export function BuildingEventView({
       return;
     }
 
-    if (result.kind === 'winner') {
-      celebration.triggerWinnerConfetti(clientX, clientY);
+    if (result.kind === 'group-finalist') {
+      triggerRaceSaveFeedback(clientX, clientY);
+      setGroupFinalistDialog({
+        stageTitle: result.stageTitle,
+        finalistName: result.finalistName,
+        finalist: entrants[result.finalistIndex],
+      });
+      return;
+    }
 
-      if (clientX !== undefined && clientY !== undefined) {
-        const newId = Date.now();
-        setStamps((current) => [...current, { id: newId, x: clientX, y: clientY }]);
-        window.setTimeout(
-          () => setStamps((current) => current.filter((stamp) => stamp.id !== newId)),
-          800,
-        );
-      }
+    if (result.kind === 'saved') {
+      triggerRaceSaveFeedback(clientX, clientY);
     }
   }
 
@@ -247,6 +275,7 @@ export function BuildingEventView({
   function handleUndoLastResult() {
     profileCard.hideProfileCard(true);
     setScoreDialog(null);
+    setGroupFinalistDialog(null);
     setShowPodium(false);
     tournament.undoLastRaceResult();
   }
@@ -350,6 +379,13 @@ export function BuildingEventView({
         shareStatus={resultShareStatus}
         isSharingResult={isSharingResult}
       />
+      <GroupFinalistPopup
+        visible={Boolean(groupFinalistDialog)}
+        stageTitle={groupFinalistDialog?.stageTitle || 'Group'}
+        finalistName={groupFinalistDialog?.finalistName || 'TBD'}
+        finalist={groupFinalistDialog?.finalist}
+        onClose={() => setGroupFinalistDialog(null)}
+      />
       <MatchScoreModal
         visible={Boolean(scoreDialog)}
         title={scoreDialog?.title || 'Race'}
@@ -388,7 +424,6 @@ export function BuildingEventView({
         />
         <EventSummary
           registrationStatus={tournament.registrationStatus}
-          checkedInPlayersCount={tournament.checkedInPlayersCount}
           showAdminControls={currentView === 'admin'}
           isAdminMode={isAdminMode}
           canUseAdminControls={canUseAdminControls}
@@ -405,6 +440,13 @@ export function BuildingEventView({
             }
           }}
         />
+        {currentView === 'public' ? (
+          <MarioEventSpotlight
+            brandVariant={building.brandVariant}
+            buildingLabel={building.label}
+            preset={preset}
+          />
+        ) : null}
 
         <div className={`content${currentView !== 'admin' ? ' content-single' : ''}`}>
           <div className="view-column">

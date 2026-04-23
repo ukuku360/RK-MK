@@ -1,5 +1,5 @@
-import spireLogo from '../../assets/branding/spire/logos/spire-logo.svg';
 import type { EventPreset, ViewMode } from '../../types';
+import { SpireMotionPreview } from './SpireMotionPreview';
 
 interface SpireHeroProps {
   currentView: ViewMode;
@@ -18,9 +18,7 @@ export function SpireHero({
     <header className="spire-hero">
       <div className="spire-hero-copy">
         <div className="spire-hero-brand-row">
-          <div className="spire-hero-logo-chip">
-            <img className="spire-hero-logo" src={spireLogo} alt="Spire Student Living" />
-          </div>
+          <SpireMotionPreview />
         </div>
 
         <div className="spire-hero-title-wrap">

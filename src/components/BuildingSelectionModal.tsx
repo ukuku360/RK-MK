@@ -1,4 +1,5 @@
 import { BUILDINGS } from '../constants';
+import marioKartDriver from '../assets/mario-kart-driver.png';
 import spireLogo from '../assets/branding/spire/logos/spire-logo.svg';
 import type { BuildingConfig } from '../types';
 
@@ -14,7 +15,9 @@ export function BuildingSelectionModal({
   return (
     <main className="page route-selector-page">
       <section className="panel route-selector-modal" role="dialog" aria-modal="true">
-        <h1>Pick the building you live in</h1>
+        <div className="route-selector-mascot" aria-hidden="true">
+          <img src={marioKartDriver} alt="" />
+        </div>
         <p className="route-selector-copy">Tap your building below.</p>
 
         <div className="route-selector-grid">

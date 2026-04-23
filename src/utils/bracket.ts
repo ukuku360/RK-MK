@@ -2,6 +2,7 @@ import { MAX_PLAYERS } from '../constants';
 import type {
   PlayerRecord,
   RosterEntry,
+  SelectionResult,
   StageKey,
   StageRaceResult,
   StageResults,
@@ -538,6 +539,38 @@ export function getStageTitle(stageKey: StageKey) {
   }
 
   return `Group ${stageKey.split('-')[1]?.toUpperCase()}`;
+}
+
+export function getGroupFinalistDecision(
+  stageKey: StageKey,
+  previousGroupStages: TournamentStage[],
+  nextGroupStages: TournamentStage[],
+  entrants: PlayerRecord[],
+): Extract<SelectionResult, { kind: 'group-finalist' }> | null {
+  if (stageKey === 'final') {
+    return null;
+  }
+
+  const previousStage = previousGroupStages.find((stage) => stage.key === stageKey);
+  const nextStage = nextGroupStages.find((stage) => stage.key === stageKey);
+
+  if (!nextStage?.isFinalized || nextStage.winnerIndex === undefined) {
+    return null;
+  }
+
+  if (previousStage?.isFinalized && previousStage.winnerIndex === nextStage.winnerIndex) {
+    return null;
+  }
+
+  const finalist = entrants[nextStage.winnerIndex];
+
+  return {
+    kind: 'group-finalist',
+    stageKey: nextStage.key,
+    stageTitle: nextStage.title,
+    finalistIndex: nextStage.winnerIndex,
+    finalistName: finalist && !finalist.empty ? finalist.name : 'TBD',
+  };
 }
 
 export function buildTournamentStages(

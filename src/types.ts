@@ -102,10 +102,17 @@ export interface TournamentStage {
 
 export type ViewMode = 'public' | 'admin';
 
-export interface SelectionResult {
-  kind: 'winner' | 'champion' | 'noop';
-  championName?: string;
-}
+export type SelectionResult =
+  | { kind: 'saved' }
+  | {
+      kind: 'group-finalist';
+      stageKey: StageKey;
+      stageTitle: string;
+      finalistIndex: number;
+      finalistName: string;
+    }
+  | { kind: 'champion'; championName?: string }
+  | { kind: 'noop' };
 
 export type TournamentPlayer = ParticipantRecord;
 export type LocalEventState = PersistedEventState;

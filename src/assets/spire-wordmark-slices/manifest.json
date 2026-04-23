@@ -1,0 +1,56 @@
+{
+  "source": "C:\\Users\\natha\\uknmd\\RK-MK\\ASSET\\SPIRE_BRANDING\\Logo\\Exports\\Regular\\PNG\\SpireLogo_16.png",
+  "bounds": {
+    "x": 606,
+    "y": 906,
+    "width": 948,
+    "height": 349
+  },
+  "components": [
+    {
+      "id": "slice-01",
+      "file": "slice-01.png",
+      "order": 1,
+      "x": 0,
+      "y": 0,
+      "width": 201,
+      "height": 349
+    },
+    {
+      "id": "slice-02",
+      "file": "slice-02.png",
+      "order": 2,
+      "x": 213,
+      "y": 2,
+      "width": 208,
+      "height": 342
+    },
+    {
+      "id": "slice-03",
+      "file": "slice-03.png",
+      "order": 3,
+      "x": 436,
+      "y": 4,
+      "width": 83,
+      "height": 340
+    },
+    {
+      "id": "slice-04",
+      "file": "slice-04.png",
+      "order": 4,
+      "x": 535,
+      "y": 4,
+      "width": 223,
+      "height": 340
+    },
+    {
+      "id": "slice-05",
+      "file": "slice-05.png",
+      "order": 5,
+      "x": 770,
+      "y": 4,
+      "width": 178,
+      "height": 340
+    }
+  ]
+}

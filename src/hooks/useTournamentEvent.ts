@@ -28,6 +28,7 @@ import {
   createEmptyStageResults,
   findRosterSlotIndexForPlayer,
   getBracketEntrants,
+  getGroupFinalistDecision,
   padEntrantsToGrid,
   shuffleList,
 } from '../utils/bracket';
@@ -758,6 +759,11 @@ export function useTournamentEvent(
       }
 
       const currentStageResults = cloneStageResults(stageResults);
+      const previousTournament = buildTournamentStages(
+        orderedEntrants,
+        stageResults,
+        isRosterFinalized,
+      );
       const existingResults = currentStageResults[slot.stageKey];
       const standardResults = existingResults.filter((result) => result.kind === 'standard');
       const tieBreakResults = existingResults.filter((result) => result.kind === 'tiebreak');
@@ -857,7 +863,18 @@ export function useTournamentEvent(
         };
       }
 
-      return { kind: 'winner' };
+      const groupFinalistDecision = getGroupFinalistDecision(
+        slot.stageKey,
+        previousTournament.groupStages,
+        nextTournament.groupStages,
+        orderedEntrants,
+      );
+
+      if (groupFinalistDecision) {
+        return groupFinalistDecision;
+      }
+
+      return { kind: 'saved' };
     },
     [
       getCurrentActorId,

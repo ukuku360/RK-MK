@@ -28,7 +28,7 @@ export const ROOMINGKOS_EVENT_PRESET: EventPreset = {
   summaryTimezoneLabel: 'Melbourne time',
   summaryStatusLabel: 'Registration status',
   summaryStatusDescriptions: {
-    open: 'Registrations are open across all remaining slots.',
+    open: '',
     nearlyFull: 'Only a few slots remain before Pit Lane opens.',
     full: 'Grid is full. New signups will be queued in Pit Lane.',
     locked: 'The draw is locked and registrations are no longer open.',

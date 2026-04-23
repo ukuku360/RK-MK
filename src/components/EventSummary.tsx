@@ -1,9 +1,8 @@
-import { EVENT_PRESET, MAX_PLAYERS } from '../constants';
+import { EVENT_PRESET } from '../constants';
 import type { EventRegistrationStatus } from '../types';
 
 interface EventSummaryProps {
   registrationStatus: EventRegistrationStatus;
-  checkedInPlayersCount: number;
   showAdminControls?: boolean;
   isAdminMode?: boolean;
   canUseAdminControls?: boolean;
@@ -31,7 +30,6 @@ function getRegistrationStatusLabel(status: EventRegistrationStatus) {
 
 export function EventSummary({
   registrationStatus,
-  checkedInPlayersCount,
   showAdminControls = false,
   isAdminMode = false,
   canUseAdminControls = false,
@@ -48,7 +46,7 @@ export function EventSummary({
         ? EVENT_PRESET.summaryStatusDescriptions.full
         : registrationStatus === 'nearly-full'
           ? EVENT_PRESET.summaryStatusDescriptions.nearlyFull
-          : EVENT_PRESET.summaryStatusDescriptions.open;
+          : '';
 
   return (
     <div className={`panel event-summary${showAdminControls ? ' event-summary-admin-active' : ''}`}>
@@ -95,7 +93,9 @@ export function EventSummary({
             <span className="event-summary-countdown-inline-value">{registrationStatusLabel}</span>
           </div>
         </div>
-        <p className="event-summary-footnote">{registrationStatusDescription}</p>
+        {registrationStatusDescription ? (
+          <p className="event-summary-footnote">{registrationStatusDescription}</p>
+        ) : null}
         <ul className="prize-grid" aria-label="Prize tiers">
           {EVENT_PRESET.prizes.map((prize) => (
             <li key={prize.tier} className={prize.className}>
@@ -106,10 +106,6 @@ export function EventSummary({
             </li>
           ))}
         </ul>
-        <p className="event-summary-footnote">
-          Grid capacity: {MAX_PLAYERS} drivers. Checked in: {checkedInPlayersCount}. Group winners
-          advance to the final and the top three finalists reach the podium.
-        </p>
       </div>
       {showAdminControls ? (
         <div className="event-summary-admin">
