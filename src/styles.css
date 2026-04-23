@@ -5003,8 +5003,7 @@ body.spire-route .button-secondary,
 body.spire-route .registration-panel button,
 body.spire-route .entries-panel button,
 body.spire-route .bracket-panel button,
-body.spire-route .match-score-actions button,
-body.spire-route .spire-summary-actions button {
+body.spire-route .match-score-actions button {
   border-color: var(--spire-border-strong);
   box-shadow: 0 10px 20px rgba(0, 41, 31, 0.1);
 }
@@ -5027,7 +5026,6 @@ body.spire-route .focus-toggle,
 body.spire-route .button-secondary,
 body.spire-route .match-score-secondary,
 body.spire-route .bracket-progress-undo,
-body.spire-route .spire-summary-actions button,
 body.spire-route .admin-checkin {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(236, 243, 236, 0.96) 100%) !important;
@@ -5036,8 +5034,7 @@ body.spire-route .admin-checkin {
 }
 
 body.spire-route .focus-toggle,
-body.spire-route .bracket-progress-undo,
-body.spire-route .spire-summary-actions button:not(.button-secondary) {
+body.spire-route .bracket-progress-undo {
   background:
     linear-gradient(180deg, rgba(16, 57, 47, 0.98) 0%, rgba(6, 42, 32, 0.98) 100%) !important;
   color: var(--brand-cream) !important;
@@ -6251,7 +6248,7 @@ body.spire-route .shuffle-subtext {
 
 .spire-summary-shell {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px;
 }
 
@@ -6266,8 +6263,7 @@ body.spire-route .shuffle-subtext {
   box-shadow: 0 20px 44px rgba(0, 41, 31, 0.1);
 }
 
-.spire-summary-card h2,
-.spire-summary-card h3 {
+.spire-summary-card h2 {
   margin: 0;
   font-size: clamp(1.55rem, 3.1vw, 2rem);
   line-height: 1;
@@ -6283,13 +6279,6 @@ body.spire-route .shuffle-subtext {
   background:
     radial-gradient(circle at top right, rgba(190, 255, 176, 0.48), transparent 52%),
     linear-gradient(180deg, rgba(249, 247, 244, 0.99) 0%, rgba(233, 243, 232, 0.98) 100%);
-}
-
-.spire-summary-card-admin {
-  background:
-    radial-gradient(circle at 82% 22%, rgba(3, 55, 44, 0.1), transparent 26%),
-    radial-gradient(circle at 14% 18%, rgba(190, 255, 176, 0.28), transparent 32%),
-    linear-gradient(180deg, rgba(249, 247, 244, 0.99) 0%, rgba(236, 244, 236, 0.98) 100%);
 }
 
 .spire-summary-meta,
@@ -6340,12 +6329,6 @@ body.spire-route .shuffle-subtext {
   font-weight: 800;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-}
-
-.spire-summary-actions {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
 }
 
 .spire-content-grid {

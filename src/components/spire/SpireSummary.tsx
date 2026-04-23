@@ -5,13 +5,6 @@ interface SpireSummaryProps {
   registrationStatus: EventRegistrationStatus;
   checkedInPlayersCount: number;
   preset: EventPreset;
-  showAdminControls?: boolean;
-  isAdminMode?: boolean;
-  canUseAdminControls?: boolean;
-  onLogin?: () => void;
-  onLogout?: () => void;
-  onResetBracket?: () => void;
-  onResetEvent?: () => void;
 }
 
 function getRegistrationStatusLabel(status: EventRegistrationStatus) {
@@ -34,13 +27,6 @@ export function SpireSummary({
   registrationStatus,
   checkedInPlayersCount,
   preset,
-  showAdminControls = false,
-  isAdminMode = false,
-  canUseAdminControls = false,
-  onLogin,
-  onLogout,
-  onResetBracket,
-  onResetEvent,
 }: SpireSummaryProps) {
   const registrationStatusLabel = getRegistrationStatusLabel(registrationStatus);
   const registrationStatusDescription =
@@ -53,7 +39,7 @@ export function SpireSummary({
           : preset.summaryStatusDescriptions.open;
 
   return (
-    <section className={`spire-summary-shell${showAdminControls ? ' is-admin' : ''}`}>
+    <section className="spire-summary-shell">
       <article className="spire-summary-card spire-summary-card-timing">
         <p className="spire-summary-kicker">{preset.summaryTitle}</p>
         <h2>{preset.summaryLead}</h2>
@@ -89,36 +75,6 @@ export function SpireSummary({
         </div>
       </article>
 
-      <article className="spire-summary-card spire-summary-card-admin">
-        <p className="spire-summary-kicker">Race control</p>
-        <h3>{isAdminMode ? 'Verified session' : 'Private admin view'}</h3>
-        <p className="spire-summary-status-copy">
-          {isAdminMode
-            ? 'Use the admin view to draw qualifier groups, record finishing order, and publish the podium.'
-            : 'Admin login stays separate from the public resident experience.'}
-        </p>
-        <div className="spire-summary-actions">
-          {!isAdminMode ? (
-            <button type="button" onClick={() => onLogin?.()}>
-              Admin Login
-            </button>
-          ) : (
-            <button type="button" onClick={onLogout}>
-              Log Out
-            </button>
-          )}
-          {canUseAdminControls ? (
-            <button type="button" className="button-secondary" onClick={onResetBracket}>
-              Reset Draw
-            </button>
-          ) : null}
-          {canUseAdminControls ? (
-            <button type="button" className="button-secondary" onClick={onResetEvent}>
-              Reset Event
-            </button>
-          ) : null}
-        </div>
-      </article>
     </section>
   );
 }
