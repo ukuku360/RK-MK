@@ -108,6 +108,13 @@ export function SpireEventView({
         return;
       }
 
+      if (
+        event.key === 'Escape' &&
+        document.querySelector('.stage-focus-modal-backdrop, .match-score-modal-backdrop')
+      ) {
+        return;
+      }
+
       if (event.key === 'Escape' && isBracketFocus) {
         setIsBracketFocus(false);
       }
@@ -371,9 +378,7 @@ export function SpireEventView({
       <main className="page spire-page">
         <SpireHero
           currentView={currentView}
-          headline={building.headline}
           preset={preset}
-          shareStatus={tournament.shareStatus}
           onShare={tournament.shareEvent}
           onViewChange={handleViewChange}
         />
@@ -483,6 +488,7 @@ export function SpireEventView({
                 resultsReady={tournament.resultsReady}
                 onOpenResults={() => setShowPodium(true)}
                 onRequestRaceResult={handleRequestRaceResult}
+                onOpenStageFocus={() => profileCard.hideProfileCard(true)}
                 onScroll={() => profileCard.hideProfileCard(true)}
               />
             </div>

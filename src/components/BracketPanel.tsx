@@ -1,11 +1,12 @@
-import type { ComponentProps } from 'react';
-import { useMemo } from 'react';
+import type { ComponentProps, MouseEvent } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { EVENT_PRESET } from '../constants';
 import type { ProfileHandlerFactory } from '../hooks/useProfileCard';
 import type {
   EventPreset,
   PlayerRecord,
   StageRaceSlot,
+  StageKey,
   TournamentStage,
 } from '../types';
 import { makeProfileCardData } from '../utils/profile';
@@ -34,6 +35,7 @@ interface BracketPanelProps {
     clientX?: number,
     clientY?: number,
   ) => void;
+  onOpenStageFocus?: () => void;
   onScroll: () => void;
 }
 
@@ -76,6 +78,218 @@ function getWinnerLabel(stage: TournamentStage, entrants: PlayerRecord[]) {
   return stage.key === 'final' ? `Champion · ${label}` : `Finalist · ${label}`;
 }
 
+const INTERACTIVE_STAGE_CARD_SELECTOR =
+  'button, a, input, select, textarea, [data-stage-card-action="true"], [data-profile-card-anchor="true"]';
+
+interface StageCardProps {
+  entrants: PlayerRecord[];
+  stage: TournamentStage;
+  isRosterFinalized: boolean;
+  canUseRosterControls: boolean;
+  isExpanded?: boolean;
+  titleId?: string;
+  getProfileHandlers: ProfileHandlerFactory;
+  onOpenFocus?: (stageKey: StageKey) => void;
+  onRequestRaceResult: (
+    slot: StageRaceSlot,
+    clientX?: number,
+    clientY?: number,
+  ) => void;
+}
+
+function StageCard({
+  entrants,
+  stage,
+  isRosterFinalized,
+  canUseRosterControls,
+  isExpanded = false,
+  titleId,
+  getProfileHandlers,
+  onOpenFocus,
+  onRequestRaceResult,
+}: StageCardProps) {
+  const winnerLabel = getWinnerLabel(stage, entrants);
+  const canOpenFocus = !isExpanded && Boolean(onOpenFocus);
+  const className = `stage-card${stage.key === 'final' ? ' stage-card-final' : ''}${
+    isExpanded ? ' stage-card-expanded' : ' stage-card-focusable'
+  }`;
+
+  function handleCardClick(event: MouseEvent<HTMLElement>) {
+    if (!canOpenFocus) {
+      return;
+    }
+
+    const target = event.target instanceof Element ? event.target : null;
+
+    if (target?.closest(INTERACTIVE_STAGE_CARD_SELECTOR)) {
+      return;
+    }
+
+    onOpenFocus?.(stage.key);
+  }
+
+  return (
+    <article className={className} onClick={handleCardClick}>
+      <div className="stage-card-header">
+        <div>
+          <p className="stage-card-kicker">
+            {stage.key === 'final' ? 'Championship' : 'Qualifier'}
+          </p>
+          <h3 id={titleId}>{stage.title}</h3>
+        </div>
+        {winnerLabel || canOpenFocus ? (
+          <div className="stage-card-header-actions">
+            {winnerLabel ? (
+              <span className="stage-card-winner">{winnerLabel}</span>
+            ) : null}
+            {canOpenFocus ? (
+              <button
+                type="button"
+                className="stage-card-focus-button"
+                data-stage-card-action="true"
+                aria-label={`Open ${stage.title} focus view`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onOpenFocus?.(stage.key);
+                }}
+              >
+                Focus
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+
+      <p className="stage-card-status">{getStageStatusText(stage, isRosterFinalized)}</p>
+
+      <div className="stage-player-grid">
+        {stage.participantIndexes.length === 0 ? (
+          <div className="stage-empty-note">No drivers locked into this stage yet.</div>
+        ) : (
+          stage.participantIndexes.map((entrantIndex, index) => {
+            const player = entrants[entrantIndex];
+            const profileHandlers = getProfileHandlers(
+              makeProfileCardData(
+                player,
+                stage.key === 'final'
+                  ? `Finalist ${index + 1}`
+                  : `${stage.title} Driver ${index + 1}`,
+              ),
+              { enablePin: true },
+            ) as ComponentProps<'button'>;
+
+            return (
+              <button
+                key={`${stage.key}-entrant-${entrantIndex}`}
+                type="button"
+                className="stage-player-chip"
+                data-profile-card-anchor="true"
+                {...profileHandlers}
+              >
+                {player && !player.empty ? player.name : 'TBD'}
+              </button>
+            );
+          })
+        )}
+      </div>
+
+      <div className="stage-card-body">
+        <section className="stage-race-panel" aria-label={`${stage.title} race list`}>
+          <div className="stage-section-heading">
+            <h4>Races</h4>
+            <span>
+              {stage.completedStandardRaceCount} / {stage.totalStandardRaceCount}
+            </span>
+          </div>
+
+          {stage.raceSlots.length === 0 ? (
+            <p className="stage-empty-note">
+              {stage.participantIndexes.length <= 1
+                ? 'No race input needed.'
+                : 'Races will appear here once the stage is ready.'}
+            </p>
+          ) : (
+            <div className="stage-race-list">
+              {stage.raceSlots.map((slot) => (
+                <button
+                  key={slot.key}
+                  type="button"
+                  className={`stage-race-row${slot.result ? ' resolved' : ''}${slot.isLocked ? ' locked' : ''}${slot.isPending ? ' pending' : ''}`}
+                  disabled={!canUseRosterControls || slot.isLocked}
+                  onClick={(event) =>
+                    onRequestRaceResult(slot, event.clientX, event.clientY)
+                  }
+                >
+                  <span className="stage-race-label-wrap">
+                    <span className="stage-race-label">
+                      {slot.kind === 'standard' ? slot.label.toUpperCase() : slot.label}
+                    </span>
+                    {slot.kind === 'tiebreak' && slot.tiebreakBand ? (
+                      <span className="stage-race-meta">
+                        Ranks {slot.tiebreakBand.startRank}-{slot.tiebreakBand.endRank}
+                      </span>
+                    ) : null}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="stage-standings-panel" aria-label={`${stage.title} standings`}>
+          <div className="stage-section-heading">
+            <h4>Standings</h4>
+            <span>PTS</span>
+          </div>
+
+          {stage.standings.length === 0 ? (
+            <p className="stage-empty-note">Standings will populate after the draw.</p>
+          ) : (
+            <div className="stage-standings-table">
+              {stage.standings.map((standing) => {
+                const player = entrants[standing.entrantIndex];
+                const profileHandlers = getProfileHandlers(
+                  makeProfileCardData(
+                    player,
+                    stage.key === 'final'
+                      ? `Final Rank ${standing.rank}`
+                      : `${stage.title} Rank ${standing.rank}`,
+                  ),
+                  { enablePin: true },
+                ) as ComponentProps<'button'>;
+                const isPendingTie = stage.pendingTieBreak?.participantIndexes.includes(
+                  standing.entrantIndex,
+                );
+
+                return (
+                  <div
+                    key={`${stage.key}-standing-${standing.entrantIndex}`}
+                    className={`stage-standing-row${standing.rank === 1 ? ' stage-standing-row-top' : ''}`}
+                  >
+                    <span className="stage-standing-rank">#{standing.rank}</span>
+                    <button
+                      type="button"
+                      className="stage-standing-name"
+                      data-profile-card-anchor="true"
+                      {...profileHandlers}
+                    >
+                      {player && !player.empty ? player.name : 'TBD'}
+                    </button>
+                    <span className="stage-standing-points">{standing.totalPoints}</span>
+                    {isPendingTie ? (
+                      <span className="stage-standing-flag">TIE</span>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      </div>
+    </article>
+  );
+}
+
 export function BracketPanel({
   entrants,
   groupStages,
@@ -96,11 +310,17 @@ export function BracketPanel({
   resultsReady,
   onOpenResults,
   onRequestRaceResult,
+  onOpenStageFocus,
   onScroll,
 }: BracketPanelProps) {
+  const [selectedStageKey, setSelectedStageKey] = useState<StageKey | null>(null);
   const stages = useMemo(
     () => [...groupStages, finalStage],
     [finalStage, groupStages],
+  );
+  const selectedStage = useMemo(
+    () => stages.find((stage) => stage.key === selectedStageKey) ?? null,
+    [selectedStageKey, stages],
   );
   const activeEntrantCount = useMemo(
     () => entrants.filter((entrant) => entrant && !entrant.empty).length,
@@ -112,6 +332,39 @@ export function BracketPanel({
     totalStandardRaceCount === 0
       ? '0%'
       : `max(${((completedStandardRaceCount / totalStandardRaceCount) * 100).toFixed(2)}%, 26px)`;
+
+  useEffect(() => {
+    if (!selectedStageKey) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        return;
+      }
+
+      if (document.querySelector('.match-score-modal-backdrop')) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      setSelectedStageKey(null);
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [selectedStageKey]);
+
+  function openStageFocus(stageKey: StageKey) {
+    onOpenStageFocus?.();
+    setSelectedStageKey(stageKey);
+  }
+
+  function closeStageFocus() {
+    setSelectedStageKey(null);
+  }
 
   return (
     <section className="panel bracket-panel">
@@ -185,155 +438,18 @@ export function BracketPanel({
           </div>
 
           <div className="stage-board-grid">
-            {stages.map((stage) => {
-              const winnerLabel = getWinnerLabel(stage, entrants);
-
-              return (
-                <article
-                  key={stage.key}
-                  className={`stage-card${stage.key === 'final' ? ' stage-card-final' : ''}`}
-                >
-                  <div className="stage-card-header">
-                    <div>
-                      <p className="stage-card-kicker">
-                        {stage.key === 'final' ? 'Championship' : 'Qualifier'}
-                      </p>
-                      <h3>{stage.title}</h3>
-                    </div>
-                    {winnerLabel ? (
-                      <span className="stage-card-winner">{winnerLabel}</span>
-                    ) : null}
-                  </div>
-
-                  <p className="stage-card-status">{getStageStatusText(stage, isRosterFinalized)}</p>
-
-                  <div className="stage-player-grid">
-                    {stage.participantIndexes.length === 0 ? (
-                      <div className="stage-empty-note">No drivers locked into this stage yet.</div>
-                    ) : (
-                      stage.participantIndexes.map((entrantIndex, index) => {
-                        const player = entrants[entrantIndex];
-                        const profileHandlers = getProfileHandlers(
-                          makeProfileCardData(
-                            player,
-                            stage.key === 'final'
-                              ? `Finalist ${index + 1}`
-                              : `${stage.title} Driver ${index + 1}`,
-                          ),
-                          { enablePin: true },
-                        ) as ComponentProps<'button'>;
-
-                        return (
-                          <button
-                            key={`${stage.key}-entrant-${entrantIndex}`}
-                            type="button"
-                            className="stage-player-chip"
-                            data-profile-card-anchor="true"
-                            {...profileHandlers}
-                          >
-                            {player && !player.empty ? player.name : 'TBD'}
-                          </button>
-                        );
-                      })
-                    )}
-                  </div>
-
-                  <div className="stage-card-body">
-                    <section className="stage-race-panel" aria-label={`${stage.title} race list`}>
-                      <div className="stage-section-heading">
-                        <h4>Races</h4>
-                        <span>
-                          {stage.completedStandardRaceCount} / {stage.totalStandardRaceCount}
-                        </span>
-                      </div>
-
-                      {stage.raceSlots.length === 0 ? (
-                        <p className="stage-empty-note">
-                          {stage.participantIndexes.length <= 1
-                            ? 'No race input needed.'
-                            : 'Races will appear here once the stage is ready.'}
-                        </p>
-                      ) : (
-                        <div className="stage-race-list">
-                          {stage.raceSlots.map((slot) => (
-                            <button
-                              key={slot.key}
-                              type="button"
-                              className={`stage-race-row${slot.result ? ' resolved' : ''}${slot.isLocked ? ' locked' : ''}${slot.isPending ? ' pending' : ''}`}
-                              disabled={!canUseRosterControls || slot.isLocked}
-                              onClick={(event) =>
-                                onRequestRaceResult(slot, event.clientX, event.clientY)
-                              }
-                            >
-                              <span className="stage-race-label-wrap">
-                                <span className="stage-race-label">
-                                  {slot.kind === 'standard' ? slot.label.toUpperCase() : slot.label}
-                                </span>
-                                {slot.kind === 'tiebreak' && slot.tiebreakBand ? (
-                                  <span className="stage-race-meta">
-                                    Ranks {slot.tiebreakBand.startRank}-{slot.tiebreakBand.endRank}
-                                  </span>
-                                ) : null}
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </section>
-
-                    <section className="stage-standings-panel" aria-label={`${stage.title} standings`}>
-                      <div className="stage-section-heading">
-                        <h4>Standings</h4>
-                        <span>PTS</span>
-                      </div>
-
-                      {stage.standings.length === 0 ? (
-                        <p className="stage-empty-note">Standings will populate after the draw.</p>
-                      ) : (
-                        <div className="stage-standings-table">
-                          {stage.standings.map((standing) => {
-                            const player = entrants[standing.entrantIndex];
-                            const profileHandlers = getProfileHandlers(
-                              makeProfileCardData(
-                                player,
-                                stage.key === 'final'
-                                  ? `Final Rank ${standing.rank}`
-                                  : `${stage.title} Rank ${standing.rank}`,
-                              ),
-                              { enablePin: true },
-                            ) as ComponentProps<'button'>;
-                            const isPendingTie = stage.pendingTieBreak?.participantIndexes.includes(
-                              standing.entrantIndex,
-                            );
-
-                            return (
-                              <div
-                                key={`${stage.key}-standing-${standing.entrantIndex}`}
-                                className={`stage-standing-row${standing.rank === 1 ? ' stage-standing-row-top' : ''}`}
-                              >
-                                <span className="stage-standing-rank">#{standing.rank}</span>
-                                <button
-                                  type="button"
-                                  className="stage-standing-name"
-                                  data-profile-card-anchor="true"
-                                  {...profileHandlers}
-                                >
-                                  {player && !player.empty ? player.name : 'TBD'}
-                                </button>
-                                <span className="stage-standing-points">{standing.totalPoints}</span>
-                                {isPendingTie ? (
-                                  <span className="stage-standing-flag">TIE</span>
-                                ) : null}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </section>
-                  </div>
-                </article>
-              );
-            })}
+            {stages.map((stage) => (
+              <StageCard
+                key={stage.key}
+                entrants={entrants}
+                stage={stage}
+                isRosterFinalized={isRosterFinalized}
+                canUseRosterControls={canUseRosterControls}
+                getProfileHandlers={getProfileHandlers}
+                onOpenFocus={openStageFocus}
+                onRequestRaceResult={onRequestRaceResult}
+              />
+            ))}
           </div>
         </div>
 
@@ -348,6 +464,45 @@ export function BracketPanel({
           </button>
         ) : null}
       </div>
+
+      {selectedStage ? (
+        <div
+          className="stage-focus-modal-backdrop"
+          role="presentation"
+          onClick={closeStageFocus}
+        >
+          <section
+            className="stage-focus-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={`stage-focus-title-${selectedStage.key}`}
+            onClick={(event) => event.stopPropagation()}
+            onScroll={onScroll}
+          >
+            <div className="stage-focus-modal-top">
+              <p className="stage-focus-modal-kicker">Focused Stage</p>
+              <button
+                type="button"
+                className="stage-focus-modal-close"
+                onClick={closeStageFocus}
+                aria-label="Close focused stage"
+              >
+                Close
+              </button>
+            </div>
+            <StageCard
+              entrants={entrants}
+              stage={selectedStage}
+              isRosterFinalized={isRosterFinalized}
+              canUseRosterControls={canUseRosterControls}
+              isExpanded
+              titleId={`stage-focus-title-${selectedStage.key}`}
+              getProfileHandlers={getProfileHandlers}
+              onRequestRaceResult={onRequestRaceResult}
+            />
+          </section>
+        </div>
+      ) : null}
     </section>
   );
 }

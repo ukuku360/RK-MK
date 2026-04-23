@@ -112,6 +112,13 @@ export function BuildingEventView({
         return;
       }
 
+      if (
+        event.key === 'Escape' &&
+        document.querySelector('.stage-focus-modal-backdrop, .match-score-modal-backdrop')
+      ) {
+        return;
+      }
+
       if (event.key === 'Escape' && isBracketFocus) {
         setIsBracketFocus(false);
       }
@@ -484,6 +491,7 @@ export function BuildingEventView({
               resultsReady={tournament.resultsReady}
               onOpenResults={() => setShowPodium(true)}
               onRequestRaceResult={handleRequestRaceResult}
+              onOpenStageFocus={() => profileCard.hideProfileCard(true)}
               onScroll={() => profileCard.hideProfileCard(true)}
             />
           ) : null}

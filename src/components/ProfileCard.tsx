@@ -34,8 +34,8 @@ export function ProfileCard({
           <p className="player-profile-value">{data?.nickname || 'No racer tag listed yet.'}</p>
         </div>
         <div className="player-profile-block unit-number">
-          <span className="player-profile-label">Crew / Kart Tag</span>
-          <p className="player-profile-value">{data?.teamTag || 'No crew tag listed yet.'}</p>
+          <span className="player-profile-label">Unit Number</span>
+          <p className="player-profile-value">{data?.teamTag || 'No unit number listed yet.'}</p>
         </div>
       </div>
     </div>
