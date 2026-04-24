@@ -1,4 +1,3 @@
-import { get, put } from '@vercel/blob';
 import { BUILDINGS, EVENT_PRESET } from '../../src/config/eventConfig.js';
 import type {
   EventRegistrationStatus,
@@ -40,6 +39,9 @@ const EVENT_PATH_PREFIX = 'events';
 const MAX_PLAYERS = 16;
 const MAX_RACE_HISTORY = 24;
 const ALL_STAGE_KEYS: StageKey[] = ['group-a', 'group-b', 'group-c', 'group-d', 'final'];
+const FIREBASE_DATABASE_URL =
+  process.env.FIREBASE_ADMIN_DATABASE_URL?.trim() ||
+  'https://rk-events-bracket-2708088-default-rtdb.asia-southeast1.firebasedatabase.app';
 
 function createEmptyStageResults(): StageResults {
   return {
@@ -235,6 +237,10 @@ function getEventPath(eventId: string) {
   return `${EVENT_PATH_PREFIX}/${encodeURIComponent(eventId)}.json`;
 }
 
+function getEventUrl(eventId: string) {
+  return `${FIREBASE_DATABASE_URL.replace(/\/+$/, '')}/${getEventPath(eventId)}`;
+}
+
 function createEmptyEventDocument(title = EVENT_PRESET.title): StoredEventDocument {
   const now = Date.now();
 
@@ -360,19 +366,19 @@ export function eventDocumentToPersistedState(document: StoredEventDocument): Pe
 }
 
 export async function readEventDocument(eventId: string, title = EVENT_PRESET.title) {
-  const result = await get(getEventPath(eventId), {
-    access: 'private',
-    useCache: false,
+  const response = await fetch(getEventUrl(eventId), {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+    },
   });
 
-  if (!result || result.statusCode !== 200) {
-    return createEmptyEventDocument(title);
+  if (!response.ok) {
+    throw new Error(`Firebase read failed with status ${response.status}.`);
   }
 
-  const rawText = await new Response(result.stream).text();
-
   try {
-    return normalizeEventDocument(JSON.parse(rawText), title);
+    return normalizeEventDocument(await response.json(), title);
   } catch {
     return createEmptyEventDocument(title);
   }
@@ -380,13 +386,17 @@ export async function readEventDocument(eventId: string, title = EVENT_PRESET.ti
 
 export async function writeEventDocument(eventId: string, document: StoredEventDocument) {
   const normalized = normalizeEventDocument(document, document.title);
-
-  await put(getEventPath(eventId), JSON.stringify(normalized), {
-    access: 'private',
-    allowOverwrite: true,
-    contentType: 'application/json',
-    cacheControlMaxAge: 60,
+  const response = await fetch(getEventUrl(eventId), {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(normalized),
   });
+
+  if (!response.ok) {
+    throw new Error(`Firebase write failed with status ${response.status}.`);
+  }
 
   return normalized;
 }
