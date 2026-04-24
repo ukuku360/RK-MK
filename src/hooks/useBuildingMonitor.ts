@@ -47,9 +47,7 @@ function snapshotFromState(
     playersCount,
     waitingPlayersCount,
     isRosterFinalized,
-    registrationStatus:
-      state.registrationStatus ||
-      getEventRegistrationStatus(playersCount, MAX_PLAYERS, isRosterFinalized),
+    registrationStatus: getEventRegistrationStatus(playersCount, MAX_PLAYERS, isRosterFinalized),
     updatedAt: typeof state.updatedAt === 'number' ? state.updatedAt : null,
     connectionState,
   };

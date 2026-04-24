@@ -252,18 +252,19 @@ export function sanitizePersistedState(
     .map((player) => normalizePlayerRecord(player))
     .filter((player) => !isSeededTestPlayer(player));
   const nextRosterOrder = rawRosterOrder.map((entry) => normalizeRosterEntry(entry));
+  const isRosterFinalized = Boolean(state.isRosterFinalized);
   const removedSeededPlayers =
     nextPlayers.length !== rawPlayers.length || nextWaitingPlayers.length !== rawWaitingPlayers.length;
-  const registrationStatus =
-    !removedSeededPlayers && state.registrationStatus
-      ? state.registrationStatus
-      :
-    getEventRegistrationStatus(nextPlayers.length, MAX_PLAYERS, Boolean(state.isRosterFinalized));
-  const lockedAt = typeof state.lockedAt === 'number' ? state.lockedAt : null;
-  const nextStageResults = state.isRosterFinalized
+  const registrationStatus = getEventRegistrationStatus(
+    nextPlayers.length,
+    MAX_PLAYERS,
+    isRosterFinalized,
+  );
+  const lockedAt = isRosterFinalized && typeof state.lockedAt === 'number' ? state.lockedAt : null;
+  const nextStageResults = isRosterFinalized
     ? normalizeStageResults((state as PersistedEventState & { stageResults?: unknown }).stageResults)
     : createEmptyStageResults();
-  const nextRaceHistory = state.isRosterFinalized
+  const nextRaceHistory = isRosterFinalized
     ? normalizeRaceHistory((state as PersistedEventState & { raceHistory?: unknown }).raceHistory)
     : [];
   const sanitizedState: PersistedEventState = {
@@ -278,13 +279,13 @@ export function sanitizePersistedState(
   };
 
   if (
-    !state.isRosterFinalized ||
+    !isRosterFinalized ||
     removedSeededPlayers ||
     nextRosterOrder.length !== rawRosterOrder.length
   ) {
     return {
       ...sanitizedState,
-      isRosterFinalized: Boolean(state.isRosterFinalized) && nextRosterOrder.length > 0,
+      isRosterFinalized: isRosterFinalized && nextRosterOrder.length > 0,
       stageResults: createEmptyStageResults(),
       raceHistory: [],
     };

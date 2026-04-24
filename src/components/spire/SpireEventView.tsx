@@ -423,6 +423,21 @@ export function SpireEventView({
           registrationStatus={tournament.registrationStatus}
           checkedInPlayersCount={tournament.checkedInPlayersCount}
           preset={preset}
+          showAdminControls={currentView === 'admin'}
+          isAdminMode={isAdminMode}
+          canUseAdminControls={canUseAdminControls}
+          onLogin={onRequestAdminLogin}
+          onLogout={handleAdminLogout}
+          onResetBracket={() => {
+            if (window.confirm('Reset the draw and keep the registered residents?')) {
+              void tournament.resetBracket();
+            }
+          }}
+          onResetEvent={() => {
+            if (window.confirm('Reset the entire event, including all registrations and results?')) {
+              void tournament.resetEvent();
+            }
+          }}
         />
         {currentView === 'public' ? (
           <MarioEventSpotlight

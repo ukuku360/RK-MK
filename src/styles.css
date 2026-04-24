@@ -6293,6 +6293,10 @@ body.spire-route .shuffle-subtext {
   gap: 18px;
 }
 
+.spire-summary-shell.is-admin {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .spire-summary-card {
   display: grid;
   gap: 16px;
@@ -6311,6 +6315,13 @@ body.spire-route .shuffle-subtext {
   color: var(--spire-ink);
 }
 
+.spire-summary-card h3 {
+  margin: 0;
+  font-size: clamp(1.35rem, 2.5vw, 1.75rem);
+  line-height: 1;
+  color: var(--spire-ink);
+}
+
 .spire-summary-card-timing {
   background:
     linear-gradient(180deg, rgba(249, 247, 244, 0.99) 0%, rgba(242, 236, 228, 0.98) 100%);
@@ -6320,6 +6331,12 @@ body.spire-route .shuffle-subtext {
   background:
     radial-gradient(circle at top right, rgba(190, 255, 176, 0.48), transparent 52%),
     linear-gradient(180deg, rgba(249, 247, 244, 0.99) 0%, rgba(233, 243, 232, 0.98) 100%);
+}
+
+.spire-summary-card-admin {
+  background:
+    radial-gradient(circle at top right, rgba(52, 245, 116, 0.2), transparent 48%),
+    linear-gradient(180deg, rgba(249, 247, 244, 0.99) 0%, rgba(242, 236, 228, 0.98) 100%);
 }
 
 .spire-summary-meta,
@@ -6370,6 +6387,29 @@ body.spire-route .shuffle-subtext {
   font-weight: 800;
   letter-spacing: 0.14em;
   text-transform: uppercase;
+}
+
+.spire-summary-admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.spire-summary-admin-actions button {
+  min-height: 44px;
+  min-width: 118px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+}
+
+body.spire-route .spire-summary-admin-actions button:not(:disabled):not(.button-secondary) {
+  background: #34f574;
+  color: #00291f;
+  border-color: rgba(0, 41, 31, 0.16);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.42),
+    0 12px 24px rgba(0, 41, 31, 0.14);
 }
 
 .spire-content-grid {

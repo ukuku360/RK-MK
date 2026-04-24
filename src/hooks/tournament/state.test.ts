@@ -88,4 +88,21 @@ describe('tournament state helpers', () => {
 
     expect(sanitizePersistedState(state).players).toHaveLength(0);
   });
+
+  it('reopens stale locked local state after the draw has been reset', () => {
+    const state = createPersistedState({
+      rosterOrder: [],
+      isRosterFinalized: false,
+      registrationStatus: 'locked',
+      lockedAt: 10,
+    });
+
+    const sanitized = sanitizePersistedState(state);
+
+    expect(sanitized.isRosterFinalized).toBe(false);
+    expect(sanitized.registrationStatus).toBe('open');
+    expect(sanitized.lockedAt).toBeNull();
+    expect(sanitized.stageResults).toEqual(createEmptyStageResults());
+    expect(sanitized.raceHistory).toEqual([]);
+  });
 });

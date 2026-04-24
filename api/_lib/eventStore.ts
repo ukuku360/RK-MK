@@ -307,9 +307,11 @@ function normalizeEventDocument(value: unknown, title = EVENT_PRESET.title): Sto
   const waitlist = normalizeParticipantMap(document.waitlist);
   const isRosterFinalized = Boolean(document.isRosterFinalized);
   const playersCount = Object.keys(participants).length;
-  const registrationStatus =
-    document.registrationStatus ||
-    getEventRegistrationStatus(playersCount, MAX_PLAYERS, isRosterFinalized);
+  const registrationStatus = getEventRegistrationStatus(
+    playersCount,
+    MAX_PLAYERS,
+    isRosterFinalized,
+  );
 
   return {
     title: typeof document.title === 'string' ? document.title : title,
@@ -324,7 +326,7 @@ function normalizeEventDocument(value: unknown, title = EVENT_PRESET.title): Sto
       : [],
     isRosterFinalized,
     registrationStatus,
-    lockedAt: typeof document.lockedAt === 'number' ? document.lockedAt : null,
+    lockedAt: isRosterFinalized && typeof document.lockedAt === 'number' ? document.lockedAt : null,
     stageResults: normalizeStageResults(document.stageResults),
     raceHistory: normalizeRaceHistory(document.raceHistory),
     createdAt: typeof document.createdAt === 'number' ? document.createdAt : Date.now(),
@@ -344,10 +346,15 @@ export function eventDocumentToPersistedState(document: StoredEventDocument): Pe
     isRosterFinalized: document.isRosterFinalized,
     stageResults: document.stageResults,
     raceHistory: document.raceHistory,
-    registrationStatus:
-      document.registrationStatus ||
-      getEventRegistrationStatus(players.length, MAX_PLAYERS, document.isRosterFinalized),
-    lockedAt: document.lockedAt,
+    registrationStatus: getEventRegistrationStatus(
+      players.length,
+      MAX_PLAYERS,
+      document.isRosterFinalized,
+    ),
+    lockedAt:
+      document.isRosterFinalized && typeof document.lockedAt === 'number'
+        ? document.lockedAt
+        : null,
     updatedAt: typeof document.updatedAt === 'number' ? document.updatedAt : Date.now(),
   };
 }
