@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { PlayerRecord, StageResults } from '../types';
+import type { PlayerRecord, StageKey, StageResults } from '../types';
 import {
   buildTournamentStages,
   createEmptyBracketEntrant,
@@ -17,12 +17,43 @@ function createPlayer(index: number): PlayerRecord {
   };
 }
 
-describe('group stage helpers', () => {
-  it('splits a locked 16-driver draw into four fixed groups', () => {
-    const entrants = Array.from({ length: 16 }, (_, index) => createPlayer(index));
+function createRankingResult(participantIndexes: number[], finishingOrder: number[]) {
+  return {
+    kind: 'standard' as const,
+    participantIndexes,
+    finishingOrder,
+  };
+}
 
+function createFullGrid() {
+  return Array.from({ length: 16 }, (_, index) => createPlayer(index));
+}
+
+function addGroupRanking(
+  stageResults: StageResults,
+  stageKey: Exclude<StageKey, 'final'>,
+  finishingOrder: number[],
+) {
+  const groupIndexByStage: Record<Exclude<StageKey, 'final'>, number> = {
+    'group-a': 0,
+    'group-b': 1,
+    'group-c': 2,
+    'group-d': 3,
+  };
+  const groupIndex = groupIndexByStage[stageKey];
+  const start = groupIndex * 4;
+  stageResults[stageKey] = [
+    createRankingResult(
+      [start, start + 1, start + 2, start + 3],
+      finishingOrder,
+    ),
+  ];
+}
+
+describe('direct ranking tournament helpers', () => {
+  it('splits a locked 16-driver draw into four fixed groups', () => {
     const tournament = buildTournamentStages(
-      entrants,
+      createFullGrid(),
       createEmptyStageResults(),
       true,
     );
@@ -34,314 +65,123 @@ describe('group stage helpers', () => {
       [12, 13, 14, 15],
     ]);
     expect(tournament.finalStage.isReady).toBe(false);
+    expect(tournament.totalStandardRaceCount).toBe(5);
   });
 
-  it('awards 10/7/5 points for a three-driver group', () => {
-    const entrants = [createPlayer(0), createPlayer(1), createPlayer(2)];
+  it('locks a group finalist from one final ranking input', () => {
     const stageResults = createEmptyStageResults();
+    stageResults['group-a'] = [createRankingResult([0, 1, 2, 3], [2, 0, 1, 3])];
 
-    stageResults['group-a'] = [
-      {
-        kind: 'standard',
-        participantIndexes: [0, 1, 2],
-        finishingOrder: [0, 1, 2],
-      },
-      {
-        kind: 'standard',
-        participantIndexes: [0, 1, 2],
-        finishingOrder: [1, 0, 2],
-      },
-      {
-        kind: 'standard',
-        participantIndexes: [0, 1, 2],
-        finishingOrder: [1, 2, 0],
-      },
-    ];
+    const tournament = buildTournamentStages(createFullGrid(), stageResults, true);
+    const groupA = tournament.groupStages[0];
 
-    const tournament = buildTournamentStages(entrants, stageResults, true);
-    const standings = tournament.groupStages[0].standings.map((standing) => ({
-      entrantIndex: standing.entrantIndex,
-      totalPoints: standing.totalPoints,
-    }));
-
-    expect(standings).toEqual([
-      { entrantIndex: 1, totalPoints: 27 },
-      { entrantIndex: 0, totalPoints: 22 },
-      { entrantIndex: 2, totalPoints: 17 },
-    ]);
-    expect(tournament.groupStages[0].winnerIndex).toBe(1);
+    expect(groupA.isFinalized).toBe(true);
+    expect(groupA.winnerIndex).toBe(2);
+    expect(groupA.completedStandardRaceCount).toBe(1);
+    expect(groupA.standings.map((standing) => standing.entrantIndex)).toEqual([2, 0, 1, 3]);
+    expect(groupA.standings.every((standing) => standing.totalPoints === 0)).toBe(true);
   });
 
-  it('announces the group finalist when the third standard race locks the group', () => {
-    const entrants = [createPlayer(0), createPlayer(1), createPlayer(2)];
-    const previousStageResults = createEmptyStageResults();
-    previousStageResults['group-a'] = [
-      {
-        kind: 'standard',
-        participantIndexes: [0, 1, 2],
-        finishingOrder: [0, 1, 2],
-      },
-      {
-        kind: 'standard',
-        participantIndexes: [0, 1, 2],
-        finishingOrder: [1, 0, 2],
-      },
-    ];
-    const nextStageResults = createEmptyStageResults();
-    nextStageResults['group-a'] = [
-      ...previousStageResults['group-a'],
-      {
-        kind: 'standard',
-        participantIndexes: [0, 1, 2],
-        finishingOrder: [1, 2, 0],
-      },
-    ];
-
-    const previousTournament = buildTournamentStages(entrants, previousStageResults, true);
-    const nextTournament = buildTournamentStages(entrants, nextStageResults, true);
-
-    expect(
-      getGroupFinalistDecision(
-        'group-a',
-        previousTournament.groupStages,
-        nextTournament.groupStages,
-        entrants,
-      ),
-    ).toEqual({
-      kind: 'group-finalist',
-      stageKey: 'group-a',
-      stageTitle: 'Group A',
-      finalistIndex: 1,
-      finalistName: 'Driver 1',
-    });
-  });
-
-  it('announces the group finalist again when an edited result changes the locked winner', () => {
-    const entrants = [createPlayer(0), createPlayer(1), createPlayer(2)];
-    const previousStageResults = createEmptyStageResults();
-    previousStageResults['group-a'] = [
-      {
-        kind: 'standard',
-        participantIndexes: [0, 1, 2],
-        finishingOrder: [0, 1, 2],
-      },
-      {
-        kind: 'standard',
-        participantIndexes: [0, 1, 2],
-        finishingOrder: [1, 0, 2],
-      },
-      {
-        kind: 'standard',
-        participantIndexes: [0, 1, 2],
-        finishingOrder: [1, 2, 0],
-      },
-    ];
-    const nextStageResults = createEmptyStageResults();
-    nextStageResults['group-a'] = [
-      ...previousStageResults['group-a'].slice(0, 2),
-      {
-        kind: 'standard',
-        participantIndexes: [0, 1, 2],
-        finishingOrder: [0, 2, 1],
-      },
-    ];
-
-    const previousTournament = buildTournamentStages(entrants, previousStageResults, true);
-    const nextTournament = buildTournamentStages(entrants, nextStageResults, true);
-
-    expect(
-      getGroupFinalistDecision(
-        'group-a',
-        previousTournament.groupStages,
-        nextTournament.groupStages,
-        entrants,
-      ),
-    ).toEqual({
-      kind: 'group-finalist',
-      stageKey: 'group-a',
-      stageTitle: 'Group A',
-      finalistIndex: 0,
-      finalistName: 'Driver 0',
-    });
-  });
-
-  it('opens a tie-break when first place is tied in a group and resolves the finalist after it', () => {
-    const entrants = [0, 1, 2, 3].map((index) => createPlayer(index));
+  it('routes each group winner into the final once all groups are ranked', () => {
     const stageResults = createEmptyStageResults();
+    addGroupRanking(stageResults, 'group-a', [1, 0, 2, 3]);
+    addGroupRanking(stageResults, 'group-b', [4, 5, 6, 7]);
+    addGroupRanking(stageResults, 'group-c', [10, 8, 9, 11]);
+    addGroupRanking(stageResults, 'group-d', [15, 12, 13, 14]);
 
-    stageResults['group-a'] = [
-      {
-        kind: 'standard',
-        participantIndexes: [0, 1, 2, 3],
-        finishingOrder: [0, 1, 2, 3],
-      },
-      {
-        kind: 'standard',
-        participantIndexes: [0, 1, 2, 3],
-        finishingOrder: [1, 2, 0, 3],
-      },
-      {
-        kind: 'standard',
-        participantIndexes: [0, 1, 2, 3],
-        finishingOrder: [3, 0, 1, 2],
-      },
-    ];
+    const tournament = buildTournamentStages(createFullGrid(), stageResults, true);
 
-    const unresolvedTournament = buildTournamentStages(entrants, stageResults, true);
-    expect(unresolvedTournament.groupStages[0].pendingTieBreak?.participantIndexes).toEqual([0, 1]);
-    expect(unresolvedTournament.finalStage.isReady).toBe(false);
-
-    stageResults['group-a'] = [
-      ...stageResults['group-a'],
-      {
-        kind: 'tiebreak',
-        participantIndexes: [0, 1],
-        finishingOrder: [1, 0],
-        tiebreakBand: {
-          startRank: 1,
-          endRank: 2,
-          participantIndexes: [0, 1],
-        },
-      },
-    ];
-
-    const resolvedTournament = buildTournamentStages(entrants, stageResults, true);
-    expect(resolvedTournament.groupStages[0].winnerIndex).toBe(1);
-    expect(resolvedTournament.finalStage.isReady).toBe(true);
-    expect(resolvedTournament.finalStage.participantIndexes).toEqual([1]);
-    expect(resolvedTournament.podium[0]).toBe(1);
+    expect(tournament.finalStage.isReady).toBe(true);
+    expect(tournament.finalStage.participantIndexes).toEqual([1, 4, 10, 15]);
+    expect(tournament.finalStage.isFinalized).toBe(false);
   });
 
-  it('waits for the tie-break before announcing a tied group finalist', () => {
-    const entrants = [0, 1, 2, 3].map((index) => createPlayer(index));
-    const previousStageResults = createEmptyStageResults();
-    previousStageResults['group-a'] = [
-      {
-        kind: 'standard',
-        participantIndexes: [0, 1, 2, 3],
-        finishingOrder: [0, 1, 2, 3],
-      },
-      {
-        kind: 'standard',
-        participantIndexes: [0, 1, 2, 3],
-        finishingOrder: [1, 2, 0, 3],
-      },
-    ];
-    const tiedStageResults = createEmptyStageResults();
-    tiedStageResults['group-a'] = [
-      ...previousStageResults['group-a'],
-      {
-        kind: 'standard',
-        participantIndexes: [0, 1, 2, 3],
-        finishingOrder: [3, 0, 1, 2],
-      },
-    ];
-    const resolvedStageResults = createEmptyStageResults();
-    resolvedStageResults['group-a'] = [
-      ...tiedStageResults['group-a'],
-      {
-        kind: 'tiebreak',
-        participantIndexes: [0, 1],
-        finishingOrder: [1, 0],
-        tiebreakBand: {
-          startRank: 1,
-          endRank: 2,
-          participantIndexes: [0, 1],
-        },
-      },
-    ];
+  it('uses the final ranking input as the podium order', () => {
+    const stageResults = createEmptyStageResults();
+    addGroupRanking(stageResults, 'group-a', [1, 0, 2, 3]);
+    addGroupRanking(stageResults, 'group-b', [4, 5, 6, 7]);
+    addGroupRanking(stageResults, 'group-c', [10, 8, 9, 11]);
+    addGroupRanking(stageResults, 'group-d', [15, 12, 13, 14]);
+    stageResults.final = [createRankingResult([1, 4, 10, 15], [10, 1, 15, 4])];
 
-    const previousTournament = buildTournamentStages(entrants, previousStageResults, true);
-    const tiedTournament = buildTournamentStages(entrants, tiedStageResults, true);
-    const resolvedTournament = buildTournamentStages(entrants, resolvedStageResults, true);
+    const tournament = buildTournamentStages(createFullGrid(), stageResults, true);
 
-    expect(
-      getGroupFinalistDecision(
-        'group-a',
-        previousTournament.groupStages,
-        tiedTournament.groupStages,
-        entrants,
-      ),
-    ).toBeNull();
-    expect(
-      getGroupFinalistDecision(
-        'group-a',
-        tiedTournament.groupStages,
-        resolvedTournament.groupStages,
-        entrants,
-      ),
-    ).toEqual({
-      kind: 'group-finalist',
-      stageKey: 'group-a',
-      stageTitle: 'Group A',
-      finalistIndex: 1,
-      finalistName: 'Driver 1',
-    });
-  });
-
-  it('does not route final-stage decisions through the group finalist popup', () => {
-    const entrants = [createPlayer(0), createPlayer(1), createPlayer(2), createPlayer(3)];
-    const tournament = buildTournamentStages(entrants, createEmptyStageResults(), true);
-
-    expect(
-      getGroupFinalistDecision(
-        'final',
-        tournament.groupStages,
-        tournament.groupStages,
-        entrants,
-      ),
-    ).toBeNull();
-  });
-
-  it('resolves final podium ties without adding extra points', () => {
-    const entrants = Array.from({ length: 16 }, () => createEmptyBracketEntrant());
-    entrants[0] = createPlayer(0);
-    entrants[4] = createPlayer(4);
-    entrants[8] = createPlayer(8);
-    entrants[12] = createPlayer(12);
-
-    const stageResults: StageResults = createEmptyStageResults();
-    stageResults.final = [
-      {
-        kind: 'standard',
-        participantIndexes: [0, 4, 8, 12],
-        finishingOrder: [0, 4, 8, 12],
-      },
-      {
-        kind: 'standard',
-        participantIndexes: [0, 4, 8, 12],
-        finishingOrder: [4, 8, 0, 12],
-      },
-      {
-        kind: 'standard',
-        participantIndexes: [0, 4, 8, 12],
-        finishingOrder: [8, 0, 4, 12],
-      },
-    ];
-
-    const unresolvedTournament = buildTournamentStages(entrants, stageResults, true);
-    expect(unresolvedTournament.finalStage.pendingTieBreak?.participantIndexes).toEqual([0, 4, 8]);
-
-    stageResults.final = [
-      ...stageResults.final,
-      {
-        kind: 'tiebreak',
-        participantIndexes: [0, 4, 8],
-        finishingOrder: [8, 0, 4],
-        tiebreakBand: {
-          startRank: 1,
-          endRank: 3,
-          participantIndexes: [0, 4, 8],
-        },
-      },
-    ];
-
-    const resolvedTournament = buildTournamentStages(entrants, stageResults, true);
-    expect(resolvedTournament.finalStage.standings.slice(0, 3).map((standing) => standing.entrantIndex)).toEqual([
-      8,
-      0,
+    expect(tournament.finalStage.isFinalized).toBe(true);
+    expect(tournament.finalStage.winnerIndex).toBe(10);
+    expect(tournament.finalStage.standings.map((standing) => standing.entrantIndex)).toEqual([
+      10,
+      1,
+      15,
       4,
     ]);
-    expect(resolvedTournament.podium).toEqual([8, 0, 4]);
+    expect(tournament.podium).toEqual([10, 1, 15]);
+    expect(tournament.completedStandardRaceCount).toBe(5);
+  });
+
+  it('ignores stale final rankings when a group finalist changes', () => {
+    const stageResults = createEmptyStageResults();
+    addGroupRanking(stageResults, 'group-a', [1, 0, 2, 3]);
+    addGroupRanking(stageResults, 'group-b', [4, 5, 6, 7]);
+    addGroupRanking(stageResults, 'group-c', [10, 8, 9, 11]);
+    addGroupRanking(stageResults, 'group-d', [15, 12, 13, 14]);
+    stageResults.final = [createRankingResult([1, 4, 10, 15], [10, 1, 15, 4])];
+
+    stageResults['group-a'] = [createRankingResult([0, 1, 2, 3], [0, 1, 2, 3])];
+
+    const tournament = buildTournamentStages(createFullGrid(), stageResults, true);
+
+    expect(tournament.finalStage.participantIndexes).toEqual([0, 4, 10, 15]);
+    expect(tournament.finalStage.isFinalized).toBe(false);
+    expect(tournament.podium).toEqual([undefined, undefined, undefined]);
+  });
+
+  it('auto-qualifies a one-driver stage without ranking input', () => {
+    const tournament = buildTournamentStages([createPlayer(0)], createEmptyStageResults(), true);
+
+    expect(tournament.groupStages[0].isFinalized).toBe(true);
+    expect(tournament.groupStages[0].winnerIndex).toBe(0);
+    expect(tournament.groupStages[0].raceSlots).toEqual([]);
+    expect(tournament.finalStage.isFinalized).toBe(true);
+    expect(tournament.podium[0]).toBe(0);
+    expect(tournament.totalStandardRaceCount).toBe(0);
+  });
+
+  it('announces a group finalist when direct ranking locks the group', () => {
+    const entrants = createFullGrid();
+    const previousStageResults = createEmptyStageResults();
+    const nextStageResults = createEmptyStageResults();
+    nextStageResults['group-a'] = [createRankingResult([0, 1, 2, 3], [2, 0, 1, 3])];
+
+    const previousTournament = buildTournamentStages(entrants, previousStageResults, true);
+    const nextTournament = buildTournamentStages(entrants, nextStageResults, true);
+
+    expect(
+      getGroupFinalistDecision(
+        'group-a',
+        previousTournament.groupStages,
+        nextTournament.groupStages,
+        entrants,
+      ),
+    ).toEqual({
+      kind: 'group-finalist',
+      stageKey: 'group-a',
+      stageTitle: 'Group A',
+      finalistIndex: 2,
+      finalistName: 'Driver 2',
+    });
+  });
+
+  it('keeps empty bracket entrants out of group rankings', () => {
+    const entrants = Array.from({ length: 16 }, () => createEmptyBracketEntrant());
+    entrants[0] = createPlayer(0);
+    entrants[1] = createPlayer(1);
+    const stageResults = createEmptyStageResults();
+    stageResults['group-a'] = [createRankingResult([0, 1], [1, 0])];
+
+    const tournament = buildTournamentStages(entrants, stageResults, true);
+
+    expect(tournament.groupStages[0].participantIndexes).toEqual([0, 1]);
+    expect(tournament.groupStages[0].winnerIndex).toBe(1);
+    expect(tournament.podium[0]).toBe(1);
   });
 });

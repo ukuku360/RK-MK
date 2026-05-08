@@ -95,7 +95,7 @@ export function useTournamentEvent(
   const [shareStatus, setShareStatus] = useState('');
   const [isShufflingRoster, setIsShufflingRoster] = useState(false);
 
-  const didRestoreLocalState = useRef(false);
+  const [hasRestoredLocalState, setHasRestoredLocalState] = useState(false);
   const pollTimeoutRef = useRef<number | null>(null);
   const shuffleTimeoutRef = useRef<number | null>(null);
   const registrationStatus = useMemo<EventRegistrationStatus>(
@@ -170,7 +170,7 @@ export function useTournamentEvent(
   );
 
   useEffect(() => {
-    didRestoreLocalState.current = false;
+    setHasRestoredLocalState(false);
     const state = loadPersistedEventState(eventId);
 
     if (!state) {
@@ -181,7 +181,7 @@ export function useTournamentEvent(
       setLockedAt(null);
       setStageResults(createEmptyStageResults());
       setRaceHistory([]);
-      didRestoreLocalState.current = true;
+      setHasRestoredLocalState(true);
       return;
     }
 
@@ -192,11 +192,11 @@ export function useTournamentEvent(
     setLockedAt(typeof state.lockedAt === 'number' ? state.lockedAt : null);
     setStageResults(normalizeStageResults(state.stageResults));
     setRaceHistory(normalizeRaceHistory(state.raceHistory));
-    didRestoreLocalState.current = true;
+    setHasRestoredLocalState(true);
   }, [eventId]);
 
   useEffect(() => {
-    if (!didRestoreLocalState.current) {
+    if (!hasRestoredLocalState) {
       return;
     }
 
@@ -217,6 +217,7 @@ export function useTournamentEvent(
     eventId,
     isRosterFinalized,
     lockedAt,
+    hasRestoredLocalState,
     players,
     raceHistory,
     registrationStatus,
@@ -765,51 +766,22 @@ export function useTournamentEvent(
         isRosterFinalized,
       );
       const existingResults = currentStageResults[slot.stageKey];
-      const standardResults = existingResults.filter((result) => result.kind === 'standard');
-      const tieBreakResults = existingResults.filter((result) => result.kind === 'tiebreak');
+      const existingResult = existingResults[0];
       const nextResult = {
         participantIndexes: [...slot.participantIndexes],
         finishingOrder: [...finishingOrder],
-        kind: slot.kind,
-        tiebreakBand: slot.tiebreakBand
-          ? {
-              startRank: slot.tiebreakBand.startRank,
-              endRank: slot.tiebreakBand.endRank,
-              participantIndexes: [...slot.tiebreakBand.participantIndexes],
-            }
-          : undefined,
+        kind: 'standard' as const,
       };
 
-      if (slot.kind === 'standard') {
-        const existingResult = standardResults[slot.raceIndex];
-
-        if (
-          existingResult &&
-          isSameFinishingOrder(existingResult.finishingOrder, finishingOrder)
-        ) {
-          return { kind: 'noop' };
-        }
-
-        currentStageResults[slot.stageKey] = [
-          ...standardResults.slice(0, slot.raceIndex),
-          nextResult,
-        ];
-      } else {
-        const existingResult = tieBreakResults[slot.raceIndex];
-
-        if (
-          existingResult &&
-          isSameFinishingOrder(existingResult.finishingOrder, finishingOrder)
-        ) {
-          return { kind: 'noop' };
-        }
-
-        currentStageResults[slot.stageKey] = [
-          ...standardResults,
-          ...tieBreakResults.slice(0, slot.raceIndex),
-          nextResult,
-        ];
+      if (
+        existingResult &&
+        existingResult.kind === 'standard' &&
+        isSameFinishingOrder(existingResult.finishingOrder, finishingOrder)
+      ) {
+        return { kind: 'noop' };
       }
+
+      currentStageResults[slot.stageKey] = [nextResult];
 
       if (slot.stageKey !== 'final') {
         currentStageResults.final = [];

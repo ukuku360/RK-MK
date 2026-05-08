@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { MAX_PLAYERS } from '../../constants';
 import type { EventPreset, EventRegistrationStatus } from '../../types';
 
@@ -5,6 +6,7 @@ interface SpireSummaryProps {
   registrationStatus: EventRegistrationStatus;
   checkedInPlayersCount: number;
   preset: EventPreset;
+  spotlight?: ReactNode;
   showAdminControls?: boolean;
   isAdminMode?: boolean;
   canUseAdminControls?: boolean;
@@ -34,6 +36,7 @@ export function SpireSummary({
   registrationStatus,
   checkedInPlayersCount,
   preset,
+  spotlight,
   showAdminControls = false,
   isAdminMode = false,
   canUseAdminControls = false,
@@ -54,38 +57,27 @@ export function SpireSummary({
 
   return (
     <section className={`spire-summary-shell${showAdminControls ? ' is-admin' : ''}`}>
-      <article className="spire-summary-card spire-summary-card-timing">
-        <p className="spire-summary-kicker">{preset.summaryTitle}</p>
-        <h2>{preset.summaryLead}</h2>
-        <div className="spire-summary-meta">
-          <div>
-            <span>{preset.summaryDateLabel}</span>
-            <strong>{preset.summaryDateLong}</strong>
-          </div>
-          <div>
-            <span>Start</span>
-            <strong>{preset.summaryTimeLabel}</strong>
-          </div>
-          <div>
-            <span>Timezone</span>
-            <strong>{preset.summaryTimezoneLabel}</strong>
-          </div>
-        </div>
-      </article>
-
       <article className="spire-summary-card spire-summary-card-status">
-        <p className="spire-summary-kicker">{preset.summaryStatusLabel}</p>
-        <div className="spire-summary-status-pill">{registrationStatusLabel}</div>
-        <p className="spire-summary-status-copy">{registrationStatusDescription}</p>
-        <div className="spire-summary-metrics">
-          <div>
-            <span>Capacity</span>
-            <strong>{MAX_PLAYERS}</strong>
+        <div className={`spire-summary-status-layout${spotlight ? ' has-spotlight' : ''}`}>
+          <div className="spire-summary-status-main">
+            <p className="spire-summary-kicker">{preset.summaryStatusLabel}</p>
+            <div className="spire-summary-status-pill">{registrationStatusLabel}</div>
+            <p className="spire-summary-status-copy">{registrationStatusDescription}</p>
+            <div className="spire-summary-metrics">
+              <div>
+                <span>Capacity</span>
+                <strong>{MAX_PLAYERS}</strong>
+              </div>
+              <div>
+                <span>Checked in</span>
+                <strong>{checkedInPlayersCount}</strong>
+              </div>
+            </div>
           </div>
-          <div>
-            <span>Checked in</span>
-            <strong>{checkedInPlayersCount}</strong>
-          </div>
+
+          {spotlight ? (
+            <div className="spire-summary-status-spotlight">{spotlight}</div>
+          ) : null}
         </div>
       </article>
 

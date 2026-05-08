@@ -7,22 +7,14 @@ import type {
   StageRaceResult,
   StageResults,
   StageStanding,
-  StageTieBreakBand,
   TournamentStage,
 } from '../types';
 
 const GROUP_SIZE = 4;
-const STANDARD_RACE_COUNT = 3;
-const STAGE_POINTS = [10, 7, 5, 3] as const;
+const RANKING_INPUT_COUNT = 1;
 
 export const GROUP_STAGE_KEYS: StageKey[] = ['group-a', 'group-b', 'group-c', 'group-d'];
 export const ALL_STAGE_KEYS: StageKey[] = [...GROUP_STAGE_KEYS, 'final'];
-
-interface StageStandingCore {
-  entrantIndex: number;
-  totalPoints: number;
-  finishCounts: [number, number, number, number];
-}
 
 function createEmptyFinishCounts(): [number, number, number, number] {
   return [0, 0, 0, 0];
@@ -43,135 +35,60 @@ function cloneStageRaceResult(result: StageRaceResult): StageRaceResult {
   };
 }
 
-function findMatchingTiebreakResult(
-  tiebreakResults: StageRaceResult[],
-  participantIndexes: number[],
-): StageRaceResult | undefined {
-  if (participantIndexes.length <= 1) {
-    return undefined;
-  }
-
-  const sortedIndexes = [...participantIndexes].sort((left, right) => left - right);
-
-  return tiebreakResults.find((result) => {
-    if (result.kind !== 'tiebreak' || result.participantIndexes.length !== sortedIndexes.length) {
-      return false;
-    }
-
-    const sortedResultIndexes = [...result.participantIndexes].sort((left, right) => left - right);
-    return sortedResultIndexes.every((value, index) => value === sortedIndexes[index]);
-  });
-}
-
-function buildOrderedStandings(
-  participantIndexes: number[],
-  standardResults: StageRaceResult[],
-  tiebreakResults: StageRaceResult[],
-) {
-  const standingsMap = new Map<number, StageStandingCore>();
-
-  participantIndexes.forEach((entrantIndex) => {
-    standingsMap.set(entrantIndex, {
-      entrantIndex,
-      totalPoints: 0,
-      finishCounts: createEmptyFinishCounts(),
-    });
-  });
-
-  standardResults.forEach((result) => {
-    const pointsForRace = STAGE_POINTS.slice(0, result.finishingOrder.length);
-
-    result.finishingOrder.forEach((entrantIndex, position) => {
-      const standing = standingsMap.get(entrantIndex);
-
-      if (!standing) {
-        return;
-      }
-
-      standing.totalPoints += pointsForRace[position] ?? 0;
-
-      if (position < standing.finishCounts.length) {
-        standing.finishCounts[position] += 1;
-      }
-    });
-  });
-
-  const pointBands: StageStandingCore[][] = [];
-  const sorted = [...standingsMap.values()].sort((left, right) => {
-    if (left.totalPoints !== right.totalPoints) {
-      return right.totalPoints - left.totalPoints;
-    }
-
-    return left.entrantIndex - right.entrantIndex;
-  });
-
-  sorted.forEach((standing) => {
-    const previousBand = pointBands[pointBands.length - 1];
-
-    if (!previousBand || previousBand[0].totalPoints !== standing.totalPoints) {
-      pointBands.push([standing]);
-      return;
-    }
-
-    previousBand.push(standing);
-  });
-
-  const nextStandings: StageStanding[] = [];
-  const unresolvedBands: StageTieBreakBand[] = [];
-  let rank = 1;
-
-  pointBands.forEach((band) => {
-    const matchingTiebreak = findMatchingTiebreakResult(
-      tiebreakResults,
-      band.map((entry) => entry.entrantIndex),
-    );
-    const isTie = band.length > 1;
-    const isTieBroken = Boolean(isTie && matchingTiebreak);
-    const orderedBand = matchingTiebreak
-      ? [
-          ...matchingTiebreak.finishingOrder
-            .map((entrantIndex) => band.find((entry) => entry.entrantIndex === entrantIndex))
-            .filter((entry): entry is StageStandingCore => entry !== undefined),
-          ...band.filter(
-            (entry) => !matchingTiebreak.finishingOrder.includes(entry.entrantIndex),
-          ),
-        ]
-      : band;
-
-    if (isTie && !matchingTiebreak) {
-      unresolvedBands.push({
-        startRank: rank,
-        endRank: rank + band.length - 1,
-        participantIndexes: band.map((entry) => entry.entrantIndex),
-      });
-    }
-
-    orderedBand.forEach((entry, index) => {
-      nextStandings.push({
-        rank: rank + index,
-        entrantIndex: entry.entrantIndex,
-        totalPoints: entry.totalPoints,
-        finishCounts: [...entry.finishCounts] as [number, number, number, number],
-        isTie,
-        isTieBroken,
-      });
-    });
-
-    rank += band.length;
-  });
-
+function createStageStanding(entrantIndex: number, rank: number): StageStanding {
   return {
-    standings: nextStandings,
-    unresolvedBands,
+    rank,
+    entrantIndex,
+    totalPoints: 0,
+    finishCounts: createEmptyFinishCounts(),
+    isTie: false,
+    isTieBroken: false,
   };
 }
 
-function getQualifyingCutoff(stageKey: StageKey, participantCount: number) {
-  if (stageKey === 'final') {
-    return Math.min(3, participantCount);
+function resultMatchesStageParticipants(
+  result: StageRaceResult | undefined,
+  participantIndexes: number[],
+): result is StageRaceResult {
+  if (!result || result.kind !== 'standard') {
+    return false;
   }
 
-  return Math.min(1, participantCount);
+  const participantSet = new Set(participantIndexes);
+  const resultParticipantSet = new Set(result.participantIndexes);
+  const finishingSet = new Set(result.finishingOrder);
+
+  return (
+    participantIndexes.length > 1 &&
+    result.participantIndexes.length === participantIndexes.length &&
+    result.finishingOrder.length === participantIndexes.length &&
+    resultParticipantSet.size === participantIndexes.length &&
+    finishingSet.size === participantIndexes.length &&
+    participantIndexes.every((entrantIndex) => resultParticipantSet.has(entrantIndex)) &&
+    result.finishingOrder.every((entrantIndex) => participantSet.has(entrantIndex))
+  );
+}
+
+function getFinalRankingResult(
+  stageResults: StageResults,
+  stageKey: StageKey,
+  participantIndexes: number[],
+) {
+  const [result] = stageResults[stageKey] ?? [];
+  return resultMatchesStageParticipants(result, participantIndexes) ? result : undefined;
+}
+
+function buildDirectStandings(
+  participantIndexes: number[],
+  finalRankingResult?: StageRaceResult,
+) {
+  const orderedParticipantIndexes = finalRankingResult
+    ? finalRankingResult.finishingOrder
+    : participantIndexes;
+
+  return orderedParticipantIndexes.map((entrantIndex, index) =>
+    createStageStanding(entrantIndex, index + 1),
+  );
 }
 
 function getGroupParticipantIndexes(
@@ -194,75 +111,29 @@ function getGroupParticipantIndexes(
     });
 }
 
-function getRaceResultsForStage(stageResults: StageResults, stageKey: StageKey) {
-  const results = stageResults[stageKey] ?? [];
-
-  return {
-    all: results,
-    standard: results.filter((result) => result.kind === 'standard'),
-    tiebreak: results.filter((result) => result.kind === 'tiebreak'),
-  };
-}
-
 function buildStageRaceSlots(
   stageKey: StageKey,
   participantIndexes: number[],
   isReady: boolean,
-  standardResults: StageRaceResult[],
-  tiebreakResults: StageRaceResult[],
-  pendingTieBreak?: StageTieBreakBand,
+  finalRankingResult?: StageRaceResult,
 ) {
-  const totalStandardRaceCount = participantIndexes.length > 1 ? STANDARD_RACE_COUNT : 0;
-  const raceSlots = [];
+  if (!isReady || participantIndexes.length <= 1) {
+    return [];
+  }
 
-  for (let index = 0; index < totalStandardRaceCount; index += 1) {
-    const result = standardResults[index];
-    const isNext = !pendingTieBreak && index === standardResults.length;
-    const isCompleted = Boolean(result);
-
-    raceSlots.push({
-      key: `${stageKey}-standard-${index}`,
+  return [
+    {
+      key: `${stageKey}-ranking`,
       stageKey,
-      raceIndex: index,
-      label: `Race ${index + 1}`,
+      raceIndex: 0,
+      label: 'Final Ranking',
       kind: 'standard' as const,
       participantIndexes,
-      result,
-      isPending: !isCompleted && isNext,
-      isLocked: !isCompleted && (!isReady || !isNext),
-    });
-  }
-
-  tiebreakResults.forEach((result, index) => {
-    raceSlots.push({
-      key: `${stageKey}-tiebreak-${index}`,
-      stageKey,
-      raceIndex: index,
-      label: `Tie-break ${index + 1}`,
-      kind: 'tiebreak' as const,
-      participantIndexes: result.participantIndexes,
-      result,
-      tiebreakBand: result.tiebreakBand,
-      isPending: false,
+      result: finalRankingResult,
+      isPending: !finalRankingResult,
       isLocked: false,
-    });
-  });
-
-  if (pendingTieBreak) {
-    raceSlots.push({
-      key: `${stageKey}-tiebreak-${tiebreakResults.length}`,
-      stageKey,
-      raceIndex: tiebreakResults.length,
-      label: `Tie-break ${tiebreakResults.length + 1}`,
-      kind: 'tiebreak' as const,
-      participantIndexes: pendingTieBreak.participantIndexes,
-      tiebreakBand: pendingTieBreak,
-      isPending: true,
-      isLocked: !isReady,
-    });
-  }
-
-  return raceSlots;
+    },
+  ];
 }
 
 function buildStage(
@@ -277,48 +148,37 @@ function buildStage(
       key: stageKey,
       title,
       participantIndexes,
-      standings: participantIndexes.map((entrantIndex, index) => ({
-        rank: index + 1,
-        entrantIndex,
-        totalPoints: 0,
-        finishCounts: createEmptyFinishCounts(),
-        isTie: false,
-        isTieBroken: false,
-      })),
-      raceSlots: buildStageRaceSlots(stageKey, participantIndexes, false, [], []),
+      standings: participantIndexes.map((entrantIndex, index) =>
+        createStageStanding(entrantIndex, index + 1),
+      ),
+      raceSlots: buildStageRaceSlots(stageKey, participantIndexes, false),
       completedStandardRaceCount: 0,
       completedTiebreakCount: 0,
-      totalStandardRaceCount: participantIndexes.length > 1 ? STANDARD_RACE_COUNT : 0,
+      totalStandardRaceCount: 0,
       isReady: false,
-      isFinalized: participantIndexes.length <= 1,
-      winnerIndex: participantIndexes.length === 1 ? participantIndexes[0] : undefined,
+      isFinalized: false,
+      winnerIndex: undefined,
     };
   }
 
-  const { standard, tiebreak } = getRaceResultsForStage(stageResults, stageKey);
-  const totalStandardRaceCount = participantIndexes.length > 1 ? STANDARD_RACE_COUNT : 0;
-  const { standings, unresolvedBands } = buildOrderedStandings(
+  const finalRankingResult = getFinalRankingResult(
+    stageResults,
+    stageKey,
     participantIndexes,
-    standard,
-    tiebreak,
   );
-  const qualifyingCutoff = getQualifyingCutoff(stageKey, participantIndexes.length);
-  const pendingTieBreak =
-    standard.length >= totalStandardRaceCount && totalStandardRaceCount > 0
-      ? unresolvedBands.find((band) => band.startRank <= qualifyingCutoff)
-      : undefined;
+  const totalStandardRaceCount =
+    participantIndexes.length > 1 ? RANKING_INPUT_COUNT : 0;
+  const standings = buildDirectStandings(participantIndexes, finalRankingResult);
   const raceSlots = buildStageRaceSlots(
     stageKey,
     participantIndexes,
     true,
-    standard,
-    tiebreak,
-    pendingTieBreak,
+    finalRankingResult,
   );
   const nextRace = raceSlots.find((slot) => slot.isPending && !slot.isLocked);
   const isFinalized =
     participantIndexes.length <= 1 ||
-    (standard.length >= totalStandardRaceCount && pendingTieBreak === undefined);
+    Boolean(finalRankingResult);
 
   return {
     key: stageKey,
@@ -326,11 +186,10 @@ function buildStage(
     participantIndexes,
     standings,
     raceSlots,
-    completedStandardRaceCount: standard.length,
-    completedTiebreakCount: tiebreak.length,
+    completedStandardRaceCount: finalRankingResult ? RANKING_INPUT_COUNT : 0,
+    completedTiebreakCount: 0,
     totalStandardRaceCount,
     nextRace,
-    pendingTieBreak,
     winnerIndex: isFinalized ? standings[0]?.entrantIndex ?? participantIndexes[0] : undefined,
     isReady: true,
     isFinalized,
@@ -590,7 +449,7 @@ export function buildTournamentStages(
       finalParticipantIndexes: [] as number[],
       podium: [undefined, undefined, undefined] as Array<number | undefined>,
       completedStandardRaceCount: 0,
-      totalStandardRaceCount: GROUP_STAGE_KEYS.length * STANDARD_RACE_COUNT + STANDARD_RACE_COUNT,
+      totalStandardRaceCount: 0,
       completedTieBreakCount: 0,
     };
   }
@@ -612,6 +471,9 @@ export function buildTournamentStages(
   const finalReady = groupStages.every(
     (stage) => stage.participantIndexes.length === 0 || stage.isFinalized,
   );
+  const expectedFinalistCount = groupStages.filter(
+    (stage) => stage.participantIndexes.length > 0,
+  ).length;
   const finalStage = buildStage(
     'final',
     'Final',
@@ -634,9 +496,9 @@ export function buildTournamentStages(
     completedStandardRaceCount:
       groupStages.reduce((total, stage) => total + stage.completedStandardRaceCount, 0) +
       finalStage.completedStandardRaceCount,
-    totalStandardRaceCount: GROUP_STAGE_KEYS.length * STANDARD_RACE_COUNT + STANDARD_RACE_COUNT,
-    completedTieBreakCount:
-      groupStages.reduce((total, stage) => total + stage.completedTiebreakCount, 0) +
-      finalStage.completedTiebreakCount,
+    totalStandardRaceCount:
+      groupStages.reduce((total, stage) => total + stage.totalStandardRaceCount, 0) +
+      (expectedFinalistCount > 1 ? RANKING_INPUT_COUNT : 0),
+    completedTieBreakCount: 0,
   };
 }

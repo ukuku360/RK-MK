@@ -423,6 +423,7 @@ export function BuildingEventView({
           onViewChange={handleViewChange}
         />
         <EventSummary
+          preset={preset}
           registrationStatus={tournament.registrationStatus}
           showAdminControls={currentView === 'admin'}
           isAdminMode={isAdminMode}

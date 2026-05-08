@@ -12,6 +12,18 @@ export function BuildingSelectionModal({
   onSelectBuilding,
   onOpenAdmin,
 }: BuildingSelectionModalProps) {
+  function getBuildingCircuitLabel(building: BuildingConfig) {
+    if (building.key === 'swanston') {
+      return 'Enter Swanston Circuit';
+    }
+
+    if (building.key === 'dudely') {
+      return 'Enter Dudley Circuit';
+    }
+
+    return 'Enter Spire Circuit';
+  }
+
   return (
     <main className="page route-selector-page">
       <section className="panel route-selector-modal" role="dialog" aria-modal="true">
@@ -36,7 +48,7 @@ export function BuildingSelectionModal({
                   {building.label}
                 </span>
                 <span className="route-selector-button-meta route-selector-button-meta-spire">
-                  Enter the Spire experience
+                  {getBuildingCircuitLabel(building)}
                 </span>
               </button>
             ) : (
@@ -47,7 +59,9 @@ export function BuildingSelectionModal({
                 onClick={() => onSelectBuilding(building)}
               >
                 <span className="route-selector-button-label">{building.label}</span>
-                <span className="route-selector-button-meta">Enter this building</span>
+                <span className="route-selector-button-meta">
+                  {getBuildingCircuitLabel(building)}
+                </span>
               </button>
             )
           ))}

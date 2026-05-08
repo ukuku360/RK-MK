@@ -60,18 +60,23 @@ export function PodiumPopup({
         }
         .podium-container {
           position: relative;
-          width: 90%;
-          max-width: 800px;
+          width: min(92vw, 860px);
+          max-height: calc(100vh - 28px);
           display: flex;
           flex-direction: column;
           align-items: center;
-          padding-top: 40px;
+          justify-content: center;
+          padding: clamp(16px, 2.4vh, 24px) 0 clamp(12px, 2vh, 20px);
+          box-sizing: border-box;
         }
         .podium-header {
           display: flex;
           flex-direction: column;
           align-items: center;
-          margin-bottom: 24px;
+          width: 100%;
+          margin-bottom: clamp(8px, 1.8vh, 16px);
+          padding: 0 clamp(54px, 8vw, 76px);
+          box-sizing: border-box;
           transform: translateY(30px) scale(0.9);
           opacity: 0;
         }
@@ -80,21 +85,26 @@ export function PodiumPopup({
           animation-delay: 2.8s;
         }
         .podium-rk-logo {
-          height: clamp(30px, 6vw, 42px);
+          height: clamp(28px, 4.6vw, 38px);
           object-fit: contain;
-          margin-bottom: 12px;
+          margin-bottom: clamp(8px, 1.4vh, 12px);
           filter: drop-shadow(4px 4px 0 var(--brand-alt));
         }
         .podium-title {
-          font-size: clamp(2.5rem, 7vw, 4.5rem);
+          width: min(100%, 820px);
+          box-sizing: border-box;
+          font-size: clamp(2.35rem, 5.7vw, 3.85rem);
           font-weight: 900;
+          line-height: 0.98;
           color: var(--black);
           text-shadow: 4px 4px 0 var(--brand);
-          letter-spacing: -0.03em;
+          letter-spacing: 0;
           text-transform: uppercase;
+          text-align: center;
+          white-space: nowrap;
           margin: 0;
           background: #fff;
-          padding: 8px 32px;
+          padding: clamp(10px, 1.7vh, 14px) clamp(24px, 4.8vw, 40px);
           border: 4px solid var(--black);
           border-radius: 999px;
           box-shadow: 6px 6px 0 var(--black);
@@ -105,7 +115,7 @@ export function PodiumPopup({
           justify-content: center;
           gap: clamp(8px, 2vw, 24px);
           width: 100%;
-          height: 420px;
+          height: clamp(360px, 47vh, 420px);
           padding: 0 16px;
         }
         .podium-actions {
@@ -113,7 +123,7 @@ export function PodiumPopup({
           flex-direction: column;
           align-items: center;
           gap: 12px;
-          margin-top: 28px;
+          margin-top: clamp(10px, 1.8vh, 18px);
         }
         .podium-share {
           min-width: 220px;
@@ -215,6 +225,7 @@ export function PodiumPopup({
           z-index: 1;
           transform: translateY(12px);
           box-shadow: 3px 3px 0 var(--black);
+          max-width: 100%;
         }
         .podium-block {
           width: 100%;
@@ -272,8 +283,8 @@ export function PodiumPopup({
         }
         .podium-close {
           position: absolute;
-          top: -12px;
-          right: -12px;
+          top: clamp(8px, 1.5vh, 14px);
+          right: clamp(8px, 1.6vw, 16px);
           background: var(--brand);
           color: #fff;
           border: 4px solid var(--black);
@@ -295,9 +306,26 @@ export function PodiumPopup({
           box-shadow: 2px 2px 0 var(--black);
         }
         @media (max-width: 640px) {
+          .podium-container {
+            width: min(94vw, 420px);
+            justify-content: flex-start;
+          }
+          .podium-header {
+            padding: 0 48px;
+          }
+          .podium-title {
+            white-space: normal;
+            font-size: clamp(2.1rem, 11vw, 3.1rem);
+            line-height: 1;
+          }
+          .podium-stage {
+            height: clamp(340px, 48vh, 400px);
+            gap: 8px;
+            padding: 0;
+          }
           .podium-close {
-             top: 0px;
-             right: 16px;
+             top: 6px;
+             right: 6px;
           }
         }
       `}</style>

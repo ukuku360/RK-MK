@@ -31,6 +31,20 @@ function isBuildingKey(value: string): value is BuildingKey {
   return value in BUILDING_CONFIGS;
 }
 
+function resolveBuildingKey(value: string): BuildingKey | null {
+  const normalizedValue = value.toLowerCase();
+
+  if (isBuildingKey(normalizedValue)) {
+    return normalizedValue;
+  }
+
+  if (normalizedValue === 'dudley') {
+    return 'dudely';
+  }
+
+  return null;
+}
+
 function resolveRoute(pathname: string): AppRoute {
   if (pathname === ROOT_PATH) {
     return { kind: 'root' };
@@ -40,9 +54,9 @@ function resolveRoute(pathname: string): AppRoute {
     return { kind: 'admin' };
   }
 
-  const maybeBuildingKey = pathname.replace(/^\//, '');
+  const maybeBuildingKey = resolveBuildingKey(pathname.replace(/^\//, ''));
 
-  if (isBuildingKey(maybeBuildingKey)) {
+  if (maybeBuildingKey) {
     return {
       kind: 'building',
       building: BUILDING_CONFIGS[maybeBuildingKey],
@@ -206,6 +220,15 @@ export default function App() {
         onClose={handleAdminGateClose}
         onSubmitPin={handleAdminLogin}
       />
+
+      {route.kind === 'building' ? (
+        <a className="home-route-toggle" href="https://rk-mk.vercel.app/">
+          <span className="home-route-toggle-mark" aria-hidden="true">
+            RK
+          </span>
+          <span className="home-route-toggle-text">All Buildings</span>
+        </a>
+      ) : null}
 
       {route.kind === 'building' ? (
         route.building.brandVariant === 'spire' ? (

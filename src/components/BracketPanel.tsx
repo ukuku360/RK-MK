@@ -53,18 +53,14 @@ function getStageStatusText(stage: TournamentStage, isRosterFinalized: boolean) 
   }
 
   if (stage.participantIndexes.length === 1) {
-    return 'Auto-qualified with no races needed.';
-  }
-
-  if (stage.pendingTieBreak) {
-    return `Tie-break needed for ranks ${stage.pendingTieBreak.startRank}-${stage.pendingTieBreak.endRank}.`;
+    return 'Auto-qualified with no ranking needed.';
   }
 
   if (stage.isFinalized) {
-    return stage.key === 'final' ? 'Final standings locked.' : 'Winner locked for the final.';
+    return stage.key === 'final' ? 'Final ranking locked.' : 'Finalist locked for the final.';
   }
 
-  return `Next up: Race ${stage.completedStandardRaceCount + 1}.`;
+  return 'Enter the final ranking.';
 }
 
 function getWinnerLabel(stage: TournamentStage, entrants: PlayerRecord[]) {
@@ -194,9 +190,9 @@ function StageCard({
       </div>
 
       <div className="stage-card-body">
-        <section className="stage-race-panel" aria-label={`${stage.title} race list`}>
+        <section className="stage-race-panel" aria-label={`${stage.title} ranking input`}>
           <div className="stage-section-heading">
-            <h4>Races</h4>
+            <h4>Ranking</h4>
             <span>
               {stage.completedStandardRaceCount} / {stage.totalStandardRaceCount}
             </span>
@@ -205,8 +201,8 @@ function StageCard({
           {stage.raceSlots.length === 0 ? (
             <p className="stage-empty-note">
               {stage.participantIndexes.length <= 1
-                ? 'No race input needed.'
-                : 'Races will appear here once the stage is ready.'}
+                ? 'No ranking input needed.'
+                : 'Ranking input will appear once the stage is ready.'}
             </p>
           ) : (
             <div className="stage-race-list">
@@ -221,14 +217,7 @@ function StageCard({
                   }
                 >
                   <span className="stage-race-label-wrap">
-                    <span className="stage-race-label">
-                      {slot.kind === 'standard' ? slot.label.toUpperCase() : slot.label}
-                    </span>
-                    {slot.kind === 'tiebreak' && slot.tiebreakBand ? (
-                      <span className="stage-race-meta">
-                        Ranks {slot.tiebreakBand.startRank}-{slot.tiebreakBand.endRank}
-                      </span>
-                    ) : null}
+                    <span className="stage-race-label">{slot.label}</span>
                   </span>
                 </button>
               ))}
@@ -238,12 +227,12 @@ function StageCard({
 
         <section className="stage-standings-panel" aria-label={`${stage.title} standings`}>
           <div className="stage-section-heading">
-            <h4>Standings</h4>
-            <span>PTS</span>
+            <h4>Rankings</h4>
+            <span>Rank</span>
           </div>
 
           {stage.standings.length === 0 ? (
-            <p className="stage-empty-note">Standings will populate after the draw.</p>
+            <p className="stage-empty-note">Rankings will populate after the draw.</p>
           ) : (
             <div className="stage-standings-table">
               {stage.standings.map((standing) => {
@@ -257,10 +246,6 @@ function StageCard({
                   ),
                   { enablePin: true },
                 ) as ComponentProps<'button'>;
-                const isPendingTie = stage.pendingTieBreak?.participantIndexes.includes(
-                  standing.entrantIndex,
-                );
-
                 return (
                   <div
                     key={`${stage.key}-standing-${standing.entrantIndex}`}
@@ -275,10 +260,6 @@ function StageCard({
                     >
                       {player && !player.empty ? player.name : 'TBD'}
                     </button>
-                    <span className="stage-standing-points">{standing.totalPoints}</span>
-                    {isPendingTie ? (
-                      <span className="stage-standing-flag">TIE</span>
-                    ) : null}
                   </div>
                 );
               })}
@@ -296,7 +277,6 @@ export function BracketPanel({
   finalStage,
   completedStandardRaceCount,
   totalStandardRaceCount,
-  completedTieBreakCount,
   isRosterFinalized,
   isShufflingRoster,
   canUseRosterControls,
@@ -399,11 +379,11 @@ export function BracketPanel({
             <h3 className="bracket-progress-title">
               {completedStandardRaceCount} / {totalStandardRaceCount}
             </h3>
-            <p className="bracket-progress-note">standard races</p>
+            <p className="bracket-progress-note">rankings locked</p>
           </div>
           <div className="bracket-progress-meta">
             <span className="bracket-progress-badge">
-              Tie-breaks: {completedTieBreakCount}
+              Direct rankings
             </span>
             {canUndoLastResult ? (
               <button

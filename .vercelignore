@@ -1,8 +1,6 @@
-.vercel
+.codex-vite*.log
 dist
 node_modules
-.DS_Store
-.codex-vite*.log
 test-results
 tmp-*
 .env*.local

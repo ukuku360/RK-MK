@@ -1,7 +1,7 @@
-import { EVENT_PRESET } from '../constants';
-import type { EventRegistrationStatus } from '../types';
+import type { EventPreset, EventRegistrationStatus } from '../types';
 
 interface EventSummaryProps {
+  preset: EventPreset;
   registrationStatus: EventRegistrationStatus;
   showAdminControls?: boolean;
   isAdminMode?: boolean;
@@ -29,6 +29,7 @@ function getRegistrationStatusLabel(status: EventRegistrationStatus) {
 }
 
 export function EventSummary({
+  preset,
   registrationStatus,
   showAdminControls = false,
   isAdminMode = false,
@@ -41,35 +42,35 @@ export function EventSummary({
   const registrationStatusLabel = getRegistrationStatusLabel(registrationStatus);
   const registrationStatusDescription =
     registrationStatus === 'locked'
-      ? EVENT_PRESET.summaryStatusDescriptions.locked
+      ? preset.summaryStatusDescriptions.locked
       : registrationStatus === 'full'
-        ? EVENT_PRESET.summaryStatusDescriptions.full
+        ? preset.summaryStatusDescriptions.full
         : registrationStatus === 'nearly-full'
-          ? EVENT_PRESET.summaryStatusDescriptions.nearlyFull
+          ? preset.summaryStatusDescriptions.nearlyFull
           : '';
 
   return (
     <div className={`panel event-summary${showAdminControls ? ' event-summary-admin-active' : ''}`}>
       <div className="event-summary-copy">
-        <p className="event-summary-title">{EVENT_PRESET.summaryTitle}</p>
+        <p className="event-summary-title">{preset.summaryTitle}</p>
         <p className="event-summary-lead">
-          <span className="event-summary-slots">{EVENT_PRESET.summaryLead}</span>
+          <span className="event-summary-slots">{preset.summaryLead}</span>
         </p>
         <div className="event-summary-highlights" aria-label="Event date and availability">
           <div className="event-summary-calendar" aria-hidden="true">
             <span className="event-summary-calendar-ring event-summary-calendar-ring-left" />
             <span className="event-summary-calendar-ring event-summary-calendar-ring-right" />
-            <span className="event-summary-calendar-top">{EVENT_PRESET.eventDate.monthShort}</span>
-            <span className="event-summary-calendar-day">{EVENT_PRESET.eventDate.day}</span>
+            <span className="event-summary-calendar-top">{preset.eventDate.monthShort}</span>
+            <span className="event-summary-calendar-day">{preset.eventDate.day}</span>
           </div>
           <div className="event-summary-meta">
-            <p className="event-summary-date-label">{EVENT_PRESET.summaryDateLabel}</p>
+            <p className="event-summary-date-label">{preset.summaryDateLabel}</p>
             <div className="event-summary-meta-row">
-              <p className="event-summary-date-value">{EVENT_PRESET.summaryDateLong}</p>
+              <p className="event-summary-date-value">{preset.summaryDateLong}</p>
               <span className="event-summary-meta-separator" aria-hidden="true" />
               <div
                 className="event-summary-time-inline"
-                aria-label={`Event starts at ${EVENT_PRESET.summaryTimeLabel}`}
+                aria-label={`Event starts at ${preset.summaryTimeLabel}`}
               >
                 <div className="event-summary-clock" aria-hidden="true">
                   <span className="event-summary-clock-hand event-summary-clock-hand-hour" />
@@ -77,18 +78,18 @@ export function EventSummary({
                   <span className="event-summary-clock-center" />
                 </div>
                 <span className="event-summary-time-inline-label">
-                  {EVENT_PRESET.summaryTimeLabel}
+                  {preset.summaryTimeLabel}
                 </span>
               </div>
             </div>
-            <p className="event-summary-date-label">{EVENT_PRESET.summaryTimezoneLabel}</p>
+            <p className="event-summary-date-label">{preset.summaryTimezoneLabel}</p>
           </div>
           <div
             className="event-summary-countdown-inline"
-            aria-label={`${EVENT_PRESET.summaryStatusLabel}: ${registrationStatusLabel}`}
+            aria-label={`${preset.summaryStatusLabel}: ${registrationStatusLabel}`}
           >
             <span className="event-summary-countdown-inline-kicker">
-              {EVENT_PRESET.summaryStatusLabel}
+              {preset.summaryStatusLabel}
             </span>
             <span className="event-summary-countdown-inline-value">{registrationStatusLabel}</span>
           </div>
@@ -97,7 +98,7 @@ export function EventSummary({
           <p className="event-summary-footnote">{registrationStatusDescription}</p>
         ) : null}
         <ul className="prize-grid" aria-label="Prize tiers">
-          {EVENT_PRESET.prizes.map((prize) => (
+          {preset.prizes.map((prize) => (
             <li key={prize.tier} className={prize.className}>
               <span className="prize-tier">{prize.tier}</span>
               <span className="prize-label">Prize</span>

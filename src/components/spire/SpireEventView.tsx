@@ -14,6 +14,8 @@ import { MarioEventSpotlight } from '../MarioEventSpotlight';
 import { MatchScoreModal } from '../MatchScoreModal';
 import { ProfileCard } from '../ProfileCard';
 import { RegistrationPanel } from '../RegistrationPanel';
+import { SpireExploreCards } from './SpireExploreCards';
+import { SpireEventSummaryPanel } from './SpireEventSummaryPanel';
 import { SpireHero } from './SpireHero';
 import { SpirePodiumPopup } from './SpirePodiumPopup';
 import { SpireSummary } from './SpireSummary';
@@ -419,10 +421,25 @@ export function SpireEventView({
           onViewChange={handleViewChange}
         />
 
+        <SpireEventSummaryPanel
+          preset={preset}
+          registrationStatus={tournament.registrationStatus}
+        />
         <SpireSummary
           registrationStatus={tournament.registrationStatus}
           checkedInPlayersCount={tournament.checkedInPlayersCount}
           preset={preset}
+          spotlight={
+            currentView === 'public' ? (
+              <MarioEventSpotlight
+                brandVariant={building.brandVariant}
+                buildingLabel={building.label}
+                preset={preset}
+                className="mario-event-spotlight-summary"
+                visualOnly
+              />
+            ) : null
+          }
           showAdminControls={currentView === 'admin'}
           isAdminMode={isAdminMode}
           canUseAdminControls={canUseAdminControls}
@@ -439,13 +456,7 @@ export function SpireEventView({
             }
           }}
         />
-        {currentView === 'public' ? (
-          <MarioEventSpotlight
-            brandVariant={building.brandVariant}
-            buildingLabel={building.label}
-            preset={preset}
-          />
-        ) : null}
+        {currentView === 'public' ? <SpireExploreCards /> : null}
 
         <div className={`spire-content-grid${currentView === 'admin' ? ' is-admin' : ''}`}>
           <div className="spire-primary-column">

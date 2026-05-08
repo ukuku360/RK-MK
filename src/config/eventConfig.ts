@@ -23,7 +23,7 @@ export const ROOMINGKOS_EVENT_PRESET: EventPreset = {
   summaryTitle: 'Event Summary',
   summaryLead: '16 drivers. 4 groups. 1 final.',
   summaryDateLabel: 'Race Day',
-  summaryDateLong: 'Monday, May 5',
+  summaryDateLong: 'Friday, May 8',
   summaryTimeLabel: '6 PM start',
   summaryTimezoneLabel: 'Melbourne time',
   summaryStatusLabel: 'Registration status',
@@ -68,7 +68,7 @@ export const ROOMINGKOS_EVENT_PRESET: EventPreset = {
   ],
   eventDate: {
     monthShort: 'MAY',
-    day: '05',
+    day: '08',
   },
 };
 
@@ -96,7 +96,7 @@ export const SPIRE_EVENT_PRESET: EventPreset = {
   summaryTitle: 'Event Overview',
   summaryLead: '16 residents. 4 qualifier groups. 1 championship final.',
   summaryDateLabel: 'Race Night',
-  summaryDateLong: 'Monday, May 5',
+  summaryDateLong: 'Friday, May 15',
   summaryTimeLabel: '6 PM start',
   summaryTimezoneLabel: 'Melbourne time',
   summaryStatusLabel: 'Registration status',
@@ -141,7 +141,7 @@ export const SPIRE_EVENT_PRESET: EventPreset = {
   ],
   eventDate: {
     monthShort: 'MAY',
-    day: '05',
+    day: '15',
   },
 };
 
@@ -151,6 +151,33 @@ export const EVENT_PRESETS: Record<BrandVariant, EventPreset> = {
   spire: SPIRE_EVENT_PRESET,
 };
 
+const BUILDING_EVENT_DATE_OVERRIDES: Record<
+  BuildingKey,
+  Pick<EventPreset, 'summaryDateLong' | 'eventDate'>
+> = {
+  swanston: {
+    summaryDateLong: 'Friday, May 8',
+    eventDate: {
+      monthShort: 'MAY',
+      day: '08',
+    },
+  },
+  spire: {
+    summaryDateLong: 'Friday, May 15',
+    eventDate: {
+      monthShort: 'MAY',
+      day: '15',
+    },
+  },
+  dudely: {
+    summaryDateLong: 'Friday, May 22',
+    eventDate: {
+      monthShort: 'MAY',
+      day: '22',
+    },
+  },
+};
+
 export const BUILDING_KEYS = ['swanston', 'dudely', 'spire'] as const satisfies readonly BuildingKey[];
 
 export const BUILDING_CONFIGS: Record<BuildingKey, BuildingConfig> = {
@@ -158,15 +185,15 @@ export const BUILDING_CONFIGS: Record<BuildingKey, BuildingConfig> = {
     key: 'swanston',
     path: '/swanston',
     label: 'RoomingKos Swanston',
-    headline: 'RoomingKos Swanston Mario Kart Cup',
+    headline: 'Swanston Mario Kart Cup',
     eventId: 'rk-mario-kart-swanston',
     brandVariant: 'roomingkos',
   },
   dudely: {
     key: 'dudely',
-    path: '/dudely',
-    label: 'RoomingKos Dudely',
-    headline: 'RoomingKos Dudely Mario Kart Cup',
+    path: '/dudley',
+    label: 'RoomingKos Dudley',
+    headline: 'Dudley Mario Kart Cup',
     eventId: 'rk-mario-kart-dudely',
     brandVariant: 'roomingkos',
   },
@@ -188,5 +215,20 @@ export function getEventPreset(buildingOrVariant: BuildingConfig | BrandVariant)
       ? buildingOrVariant
       : buildingOrVariant.brandVariant;
 
-  return EVENT_PRESETS[brandVariant];
+  const preset = EVENT_PRESETS[brandVariant];
+
+  if (typeof buildingOrVariant === 'string') {
+    return preset;
+  }
+
+  const dateOverride = BUILDING_EVENT_DATE_OVERRIDES[buildingOrVariant.key];
+
+  return {
+    ...preset,
+    ...dateOverride,
+    eventDate: {
+      ...preset.eventDate,
+      ...dateOverride.eventDate,
+    },
+  };
 }
